@@ -1,7 +1,0 @@
-{
-  "result_path": "{FORGE_EVAL_ROOT}/results/bp_acmd-legal_20260409_142634.json",
-  "skill_path": "{PROJECT_ROOT}/.claude/skills/acmd-legal",
-  "date": "2026-04-09T14:26:34.000Z",
-  "score": 99,
-  "fail_count": 1
-}

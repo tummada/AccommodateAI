@@ -1,7 +1,0 @@
-{
-  "result_path": "{FORGE_EVAL_ROOT}/results/bp_acmd-hr-expert_20260409_142640.json",
-  "skill_path": "{PROJECT_ROOT}/.claude/skills/acmd-hr-expert",
-  "date": "2026-04-09T14:26:40.000Z",
-  "score": 97,
-  "fail_count": 2
-}
