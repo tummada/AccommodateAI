@@ -1,0 +1,45 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.bak.*
+*.sql.gz
+*.sql.gz.gpg
+infra/backup.log
+infra/monitor.log
+infra/backups/
+keys/
+.turbo/
+**/.turbo/
+
+# RS-013: never commit RSA key material for JWT signing
+# T-008: also blocks Cloudflare Origin Certificate (.pem + .key) in infra/certs/
+# T-096: certs path moved to infra/caddy/certs/ (parent-directory mount fix)
+*.pem
+*.key
+private.*
+keys/*.pem
+keys/*.key
+infra/certs/
+infra/caddy/certs/
+/tmp/auth-rsa-keys-*
+
+# T-009: Caddy access logs (bind-mounted from container for fail2ban).
+# Keep the directory (logs/caddy/.gitkeep) but never commit log content
+# or rotated logs.
+logs/caddy/*.log
+logs/caddy/*.log.*
+
+# T-073: _workspace/ audit trail policy — commit task.md/output.md/review-*.md
+# but ignore anything that could leak secrets or generate noise
+_workspace/**/*.log
+_workspace/**/*.tmp
+_workspace/**/.DS_Store
+
+# T-073: security-check-output/ — local security scan artifacts only
+security-check-output/
+
+# T-088: sync-secrets.sh actual config (template lives at
+# scripts/secrets-config.example.yaml — actual file holds target lists per
+# operator and must never be committed)
+scripts/secrets-config.yaml

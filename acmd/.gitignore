@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.production
+.env.*.local
+*.sql.gz
+keys/
+.turbo/
+**/.turbo/
+
+# Lead workspace (not shared across team)
+_board.md
+_workspace/
+
+# Security audit output (per-run)
+security-check-output/
+
+# Playwright test artifacts (per-run)
+test-results/
+playwright-report/
+
+# .env backups
+.env.bak*

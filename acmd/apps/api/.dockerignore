@@ -1,0 +1,40 @@
+# T-061 — security: keep .env / node_modules / .git / build artifacts out of build context.
+# Build context for this image is the monorepo root, so paths are repo-relative.
+
+# Secrets / local-only
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+
+# Node + tooling
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+**/test-results
+**/playwright-report
+**/.e2e
+
+# VCS + editor
+.git
+.gitignore
+.gitlab-ci.yml
+.github
+.vscode
+.idea
+
+# Lead workspace + audit reports (not part of any image)
+_workspace
+_board.md
+security-check-output
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Other apps (api image must not bundle web/landing)
+apps/web
+apps/landing

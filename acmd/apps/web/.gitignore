@@ -1,0 +1,5 @@
+# RS-013: local-only E2E artifacts — generated RSA key pair, Playwright
+# reports, trace/video recordings. Never commit these.
+.e2e/
+playwright-report/
+test-results/

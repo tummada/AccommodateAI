@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<!-- migration-test 2026-04-19 -->
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOLLOS — Where Time Becomes Value</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="description" content="VOLLOS builds AI solutions that eliminate repetitive work and give businesses back their most valuable resource — time.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Outfit:wght@200;300;400;500&display=swap" rel="stylesheet">
+    <!--
+      Subresource Integrity (SRI) for external scripts — see apps/landing/README.md
+      ==========================================================================
+      Cloudflare Turnstile — STABLE body, SRI APPLIED.
+      The URL /turnstile/v0/api.js 302-redirects to a versioned /turnstile/v0/g/<hash>/api.js.
+      When Cloudflare rolls a new version, the hash below will mismatch and the
+      browser will refuse to execute Turnstile (CAPTCHA will not render).
+      Refresh procedure when CAPTCHA stops loading:
+        curl -sL -A "Mozilla/5.0" https://challenges.cloudflare.com/turnstile/v0/api.js \
+          | openssl dgst -sha384 -binary | openssl base64 -A
+      Prepend "sha384-" and replace the integrity value below.
+    -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+            integrity="sha384-rlU7C/+BbRScu+tYTeLQAOB0RMJcPZlIND5YyA+JNAgrhLQhk42O1VkfeAoJEzi/"
+            crossorigin="anonymous"
+            async defer></script>
+    <!--
+      Google Identity Services (GSI) — SRI NOT APPLIED (intentional).
+      Verified 2026-04-20: body bytes differ on every request (size fluctuates
+      by a few bytes between fetches, likely experiment/feature-flag injection).
+      This makes any fixed integrity= hash invalidate on next load and block
+      Google One Tap + Sign-in button for every visitor.
+      See apps/landing/README.md "Known-URL SRI Management" for full details,
+      mitigations, and detection guidance. Do NOT add integrity= here without
+      Google publishing a stable-hash endpoint.
+    -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        :root { --gold:#D4AF37;--gold-light:#E8C84A;--transition-speed:0.6s; }
+        [data-theme="dark"] {
+            --bg-primary:#000000;--bg-secondary:#060607;--bg-card-hover:rgba(212,175,55,0.04);
+            --text-primary:#FFFFFF;--text-secondary:#9CA3AF;--text-muted:#4B5563;
+            --border-subtle:rgba(255,255,255,0.05);--border-hover:rgba(212,175,55,0.25);
+            --grid-color:rgba(255,255,255,0.018);--logo-v:#FFFFFF;--logo-text:#FFFFFF;
+            --glow-intensity:0.12;--divider:rgba(255,255,255,0.04);--noise-opacity:0.03;
+            --nav-bg:rgba(0,0,0,0.5);--nav-border:rgba(212,175,55,0.1);--input-bg:rgba(255,255,255,0.03);
+        }
+        [data-theme="light"] {
+            --bg-primary:#FAFAF8;--bg-secondary:#F4F3F0;--bg-card-hover:rgba(212,175,55,0.06);
+            --text-primary:#1A1A1A;--text-secondary:#555555;--text-muted:#999999;
+            --border-subtle:rgba(0,0,0,0.08);--border-hover:rgba(212,175,55,0.5);
+            --grid-color:rgba(0,0,0,0.025);--logo-v:#1A1A1A;--logo-text:#1A1A1A;
+            --glow-intensity:0.12;--divider:rgba(0,0,0,0.07);--noise-opacity:0.012;
+            --nav-bg:rgba(250,250,248,0.8);--nav-border:rgba(212,175,55,0.25);
+            --input-bg:rgba(0,0,0,0.03);--gold-dark:#B8960E;
+        }
+        *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+        html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+        body{font-family:'Outfit',sans-serif;font-weight:300;background-color:var(--bg-primary);color:var(--text-primary);transition:background-color var(--transition-speed) ease,color var(--transition-speed) ease;overflow-x:hidden}
+        ::selection{background:rgba(212,175,55,0.2);color:var(--text-primary)}
+        body::after{content:'';position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;opacity:var(--noise-opacity);background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-repeat:repeat;background-size:256px 256px}
+        .grid-bg{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;background-image:linear-gradient(var(--grid-color) 1px,transparent 1px),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px);background-size:100px 100px;animation:gridDrift 60s linear infinite}
+        @keyframes gridDrift{0%{background-position:0 0}100%{background-position:100px 100px}}
+
+        /* CURSOR GLOW */
+        .cursor-glow{position:fixed;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,0.08) 0%,transparent 65%);pointer-events:none;z-index:50;filter:blur(40px);transform:translate(-50%,-50%);opacity:0;transition:opacity 0.4s ease;mix-blend-mode:screen}
+        [data-theme="light"] .cursor-glow{mix-blend-mode:normal;background:radial-gradient(circle,rgba(212,175,55,0.08) 0%,transparent 65%)}
+        .cursor-glow.visible{opacity:1}
+        @media(hover:none){.cursor-glow{display:none}}
+
+        /* LIGHT THEME OVERRIDES */
+        [data-theme="light"] .hero-glow{background:radial-gradient(circle,rgba(212,175,55,0.16) 0%,transparent 60%);filter:blur(70px)}
+        [data-theme="light"] .hero-glow-2{background:radial-gradient(circle,rgba(212,175,55,0.09) 0%,transparent 60%)}
+        [data-theme="light"] .hero-accent-line{background:linear-gradient(90deg,transparent,rgba(212,175,55,0.25),transparent)}
+        [data-theme="light"] .hero-slogan{color:var(--gold-dark,#B8960E)}
+        [data-theme="light"] .section-tag{color:var(--gold-dark,#B8960E)}
+        [data-theme="light"] .section-tag::before{background:var(--gold-dark,#B8960E)}
+        [data-theme="light"] .capability-number{color:var(--gold-dark,#B8960E);opacity:0.25}
+        [data-theme="light"] .capability::after{background:linear-gradient(90deg,transparent,var(--gold-dark,#B8960E),transparent)}
+        [data-theme="light"] .capability::before{background:radial-gradient(ellipse at center,rgba(212,175,55,0.04) 0%,transparent 70%)}
+        [data-theme="light"] .approach-quote em{color:var(--gold-dark,#B8960E)}
+        [data-theme="light"] .approach-quote::before{background:linear-gradient(to bottom,var(--gold-dark,#B8960E),transparent)}
+        [data-theme="light"] .pillar-title::before{background:var(--gold-dark,#B8960E)}
+        [data-theme="light"] .hero-divider{background:linear-gradient(90deg,transparent,var(--gold-dark,#B8960E),transparent)}
+        [data-theme="light"] .scroll-indicator .scroll-line{background:linear-gradient(to bottom,var(--gold-dark,#B8960E),transparent)}
+        [data-theme="light"] .contact-btn{border-color:var(--gold-dark,#B8960E);box-shadow:0 8px 30px -10px rgba(184,150,14,0.12)}
+        [data-theme="light"] .contact-btn:hover{color:var(--gold-dark,#B8960E);box-shadow:0 8px 40px -8px rgba(184,150,14,0.2)}
+        [data-theme="light"] .ea-btn{background:var(--gold-dark,#B8960E);color:#fff}
+        [data-theme="light"] .ea-input{border-color:rgba(0,0,0,0.1)}
+        [data-theme="light"] .ea-input:focus{border-color:var(--gold-dark,#B8960E)}
+        [data-theme="light"] nav.scrolled{box-shadow:0 4px 30px rgba(0,0,0,0.04)}
+        [data-theme="light"] .section-divider::after{background:linear-gradient(90deg,transparent,var(--gold-dark,#B8960E),transparent)}
+
+        /* NAV */
+        nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:1.5rem 3rem;display:flex;justify-content:space-between;align-items:center;transition:all 0.5s cubic-bezier(0.25,0.46,0.45,0.94)}
+        nav.scrolled{padding:1rem 3rem;backdrop-filter:blur(30px) saturate(1.2);-webkit-backdrop-filter:blur(30px) saturate(1.2);background:var(--nav-bg);border-bottom:0.5px solid var(--nav-border);box-shadow:0 4px 30px rgba(0,0,0,0.1)}
+        .nav-wordmark svg{height:32px;width:auto}
+        .theme-toggle{width:40px;height:40px;border-radius:50%;border:1px solid var(--border-subtle);background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.3s ease}
+        .theme-toggle:hover{border-color:var(--gold);color:var(--gold)}
+        .theme-toggle svg{width:16px;height:16px;transition:transform 0.4s ease}
+        .theme-toggle:hover svg{transform:rotate(30deg)}
+
+        /* HERO */
+        .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;z-index:1;padding:2rem;overflow:clip}
+        .hero-glow{position:absolute;width:650px;height:650px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,var(--glow-intensity)) 0%,transparent 65%);top:50%;left:50%;transform:translate(-50%,-52%) scale(1);pointer-events:none;filter:blur(60px);animation:pulseGlow 8s ease-in-out infinite alternate}
+        @keyframes pulseGlow{0%{transform:translate(-50%,-52%) scale(1);opacity:0.6}100%{transform:translate(-50%,-50%) scale(1.15);opacity:1}}
+        .hero-glow-2{position:absolute;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,0.04) 0%,transparent 70%);top:45%;left:55%;transform:translate(-50%,-50%) scale(1);pointer-events:none;filter:blur(80px);animation:pulseGlow2 12s ease-in-out infinite alternate}
+        @keyframes pulseGlow2{0%{transform:translate(-50%,-50%) scale(1);opacity:0.3}100%{transform:translate(-50%,-50%) scale(1.3);opacity:0.7}}
+        .hero-accent-line{position:absolute;width:300px;height:1px;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(90deg,transparent,rgba(212,175,55,0.15),transparent);pointer-events:none;animation:lineBreath 6s ease-in-out infinite alternate}
+        @keyframes lineBreath{0%{width:200px;opacity:0.5}100%{width:400px;opacity:1}}
+        .hero-logo{position:relative;margin-bottom:2.5rem}
+        .hero-logo svg{height:140px;width:auto}
+        .hero-headline{font-family:'Cormorant Garamond',serif;font-weight:300;font-style:italic;font-size:clamp(1.3rem,2.8vw,2.1rem);color:var(--text-secondary);text-align:center;letter-spacing:0.03em;line-height:1.6;max-width:600px;transition:color var(--transition-speed) ease}
+        .hero-divider{width:50px;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent);margin:2.2rem 0;animation:dividerShimmer 4s ease-in-out infinite alternate}
+        @keyframes dividerShimmer{0%{width:40px;opacity:0.5}100%{width:70px;opacity:1}}
+        .hero-slogan{font-family:'Outfit',sans-serif;font-weight:300;font-size:0.68rem;letter-spacing:0.8em;text-transform:uppercase;color:var(--gold);text-align:center}
+        .scroll-indicator{position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:0.75rem;animation:scrollFloat 3s ease-in-out infinite}
+        .scroll-indicator span{font-size:0.65rem;letter-spacing:0.3em;text-transform:uppercase;color:var(--text-muted)}
+        .scroll-indicator .scroll-line{width:1px;height:28px;background:linear-gradient(to bottom,var(--gold),transparent)}
+        @keyframes scrollFloat{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(6px)}}
+
+        /* SECTIONS */
+        section{position:relative;z-index:1}
+        .section-inner{max-width:1000px;margin:0 auto;padding:8rem 3rem}
+        .section-divider{width:100%;height:1px;position:relative;z-index:1;background:var(--divider);overflow:hidden}
+        .section-divider::after{content:'';position:absolute;top:0;left:-100%;width:50%;height:100%;background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:shimmerSlide 8s ease-in-out infinite}
+        @keyframes shimmerSlide{0%{left:-50%;opacity:0}40%{opacity:0.4}100%{left:150%;opacity:0}}
+        .section-tag{display:inline-flex;align-items:center;gap:1rem;font-family:'Outfit',sans-serif;font-weight:400;font-size:0.75rem;letter-spacing:0.4em;font-variant:all-small-caps;color:var(--gold);margin-bottom:3rem}
+        .section-tag::before{content:'';width:30px;height:1px;background:var(--gold);opacity:0.5;animation:tagLine 3s ease-in-out infinite alternate}
+        @keyframes tagLine{0%{width:20px;opacity:0.3}100%{width:40px;opacity:0.7}}
+        .section-heading{font-family:'Cormorant Garamond',serif;font-weight:400;font-size:clamp(2rem,4vw,3rem);line-height:1.25;margin-bottom:1.5rem;color:var(--text-primary);transition:color var(--transition-speed) ease}
+        .section-body{font-family:'Outfit',sans-serif;font-weight:300;font-size:1rem;line-height:1.9;color:var(--text-secondary);max-width:640px;transition:color var(--transition-speed) ease}
+
+        /* WHAT WE DO */
+        .what-section{background:var(--bg-secondary);transition:background-color var(--transition-speed) ease}
+        .capability-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-top:4rem;background:var(--divider);border:1px solid var(--divider)}
+        .capability{background:var(--bg-secondary);padding:3rem 2.5rem;transition:all 0.5s cubic-bezier(0.25,0.46,0.45,0.94);position:relative;overflow:hidden}
+        .capability::after{content:'';position:absolute;bottom:0;left:2rem;right:2rem;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent);opacity:0;transition:opacity 0.5s ease}
+        .capability:hover{background:var(--bg-card-hover)}
+        .capability:hover::after{opacity:1}
+        .capability::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(212,175,55,0.06) 0%,transparent 70%);opacity:0;transition:opacity 0.5s ease;pointer-events:none}
+        .capability:hover::before{opacity:1}
+        .capability-number{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:2.5rem;color:var(--gold);opacity:0.3;line-height:1;margin-bottom:1.5rem;animation:subtleFloat 6s ease-in-out infinite}
+        .capability:nth-child(2) .capability-number{animation-delay:-2s}
+        .capability:nth-child(3) .capability-number{animation-delay:-4s}
+        @keyframes subtleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+        .capability-title{font-family:'Outfit',sans-serif;font-weight:400;font-size:0.85rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:1rem;color:var(--text-primary);transition:color var(--transition-speed) ease}
+        .capability-desc{font-family:'Outfit',sans-serif;font-weight:300;font-size:0.88rem;line-height:1.7;color:var(--text-secondary);transition:color var(--transition-speed) ease}
+
+        /* APPROACH */
+        .approach-section{background:var(--bg-primary);transition:background-color var(--transition-speed) ease}
+        .approach-layout{display:grid;grid-template-columns:1fr 1fr;gap:6rem;margin-top:3rem;align-items:start}
+        .approach-quote{font-family:'Cormorant Garamond',serif;font-weight:400;font-size:clamp(1.3rem,2.2vw,1.7rem);line-height:1.65;color:var(--text-primary);position:relative;padding-left:2rem;transition:color var(--transition-speed) ease}
+        .approach-quote::before{content:'';position:absolute;left:0;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,var(--gold),transparent);animation:borderGlow 4s ease-in-out infinite alternate}
+        @keyframes borderGlow{0%{opacity:0.4;background:linear-gradient(to bottom,transparent,var(--gold),transparent)}100%{opacity:1;background:linear-gradient(to bottom,var(--gold),transparent)}}
+        .approach-quote em{color:var(--gold);font-style:normal}
+        .approach-pillars{display:flex;flex-direction:column}
+        .pillar{padding:2rem 0;border-bottom:1px solid var(--divider);transition:border-color 0.3s ease}
+        .pillar:first-child{padding-top:0}
+        .pillar:last-child{border-bottom:none;padding-bottom:0}
+        .pillar:hover{border-color:var(--border-hover)}
+        .pillar-title{font-family:'Outfit',sans-serif;font-weight:400;font-size:0.85rem;letter-spacing:0.08em;margin-bottom:0.6rem;color:var(--text-primary);display:flex;align-items:center;gap:0.75rem;transition:color var(--transition-speed) ease}
+        .pillar-title::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--gold);flex-shrink:0;animation:dotPulse 3s ease-in-out infinite}
+        .pillar:nth-child(2) .pillar-title::before{animation-delay:-1s}
+        .pillar:nth-child(3) .pillar-title::before{animation-delay:-2s}
+        @keyframes dotPulse{0%,100%{opacity:0.4;transform:scale(1)}50%{opacity:1;transform:scale(1.4)}}
+        .pillar-desc{font-family:'Outfit',sans-serif;font-weight:300;font-size:0.88rem;line-height:1.7;color:var(--text-secondary);padding-left:1.75rem;transition:color var(--transition-speed) ease}
+
+        /* CONTACT */
+        .contact-section{background:var(--bg-secondary);transition:background-color var(--transition-speed) ease}
+        .contact-inner{text-align:center;max-width:1000px;margin:0 auto;padding:8rem 3rem}
+        .contact-heading{font-family:'Cormorant Garamond',serif;font-weight:300;font-size:clamp(2rem,4vw,3rem);margin-bottom:1rem;color:var(--text-primary);transition:color var(--transition-speed) ease}
+        .contact-sub{font-family:'Outfit',sans-serif;font-weight:300;font-size:0.95rem;color:var(--text-secondary);margin-bottom:3.5rem;transition:color var(--transition-speed) ease}
+        .contact-actions{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;max-width:fit-content;margin:3rem auto 0}
+        .contact-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.75rem;padding:1.1rem 2.5rem;border:1px solid var(--gold);background:rgba(212,175,55,0.03);color:var(--text-secondary);text-decoration:none;font-family:'Outfit',sans-serif;font-weight:400;font-size:0.85rem;letter-spacing:0.08em;transition:all 0.35s ease;position:relative;overflow:hidden;box-shadow:0 8px 30px -10px rgba(212,175,55,0.1)}
+        .contact-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(212,175,55,0.1),transparent);opacity:0;transition:opacity 0.35s ease}
+        .contact-btn:hover{border-color:var(--gold-light);color:var(--gold);box-shadow:0 8px 40px -8px rgba(212,175,55,0.2)}
+        .contact-btn:hover::before{opacity:1}
+        .contact-btn svg{width:16px;height:16px;flex-shrink:0}
+
+        /* FORM */
+        .ea-form{display:flex;flex-direction:column;gap:10px}
+        .ea-input{width:100%;padding:13px 18px;font-family:'Outfit',sans-serif;font-size:0.88rem;font-weight:300;background:var(--input-bg);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:0;outline:none;transition:border-color 0.3s ease}
+        .ea-input::placeholder{color:var(--text-muted)}
+        .ea-input:focus{border-color:rgba(212,175,55,0.4)}
+        .ea-btn{width:100%;padding:13px 24px;font-family:'Outfit',sans-serif;font-size:0.85rem;font-weight:400;letter-spacing:0.1em;background:var(--gold);color:#000;border:none;cursor:pointer;transition:opacity 0.2s,transform 0.15s;margin-top:4px}
+        .ea-btn:hover{opacity:0.88;transform:translateY(-1px)}
+        .ea-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+        .ea-note{font-size:0.7rem;color:var(--text-muted);text-align:center;margin-top:10px;letter-spacing:0.1em}
+
+        /* FORM CONSENT */
+        .ea-consent-wrap{display:flex;align-items:flex-start;gap:10px;margin-top:4px}
+        .ea-consent-wrap input[type="checkbox"]{margin-top:2px;accent-color:var(--gold);flex-shrink:0;width:14px;height:14px;cursor:pointer}
+        .ea-consent-wrap label{font-family:'Outfit',sans-serif;font-size:0.75rem;font-weight:300;color:var(--text-muted);line-height:1.5;cursor:pointer}
+        .ea-consent-wrap label a{color:var(--gold);text-decoration:none}
+        .ea-consent-wrap label a:hover{text-decoration:underline}
+
+        /* FORM STATES */
+        .ea-error{font-family:'Outfit',sans-serif;font-size:0.78rem;color:#f87171;margin-top:6px;display:none}
+        .ea-success{font-family:'Cormorant Garamond',serif;font-weight:400;font-style:italic;font-size:1.1rem;color:var(--gold);text-align:center;padding:2rem 0;display:none}
+        .ea-field-error{border-color:rgba(248,113,113,0.5) !important}
+
+        /* GOOGLE SIGN-IN BUTTON */
+        .ea-google-btn-wrap{width:100%;margin-bottom:4px}
+        .ea-google-btn-wrap .g_id_signin{width:100%!important}
+        .ea-google-btn-wrap .g_id_signin > div{width:100%!important}
+        .ea-or-divider{display:flex;align-items:center;gap:12px;margin:14px 0}
+        .ea-or-divider::before,.ea-or-divider::after{content:'';flex:1;height:1px;background:var(--border-subtle)}
+        .ea-or-divider span{font-family:'Outfit',sans-serif;font-size:0.7rem;font-weight:300;letter-spacing:0.2em;text-transform:uppercase;color:var(--text-muted);flex-shrink:0}
+
+        /* TURNSTILE */
+        #turnstile-widget{margin-top:4px;display:flex;justify-content:center}
+
+        /* FOOTER */
+        footer{position:relative;z-index:1;text-align:center;padding:2.5rem 2rem;background:var(--bg-primary);transition:background-color var(--transition-speed) ease}
+        .footer-line{width:100%;height:1px;background:var(--divider);margin-bottom:2.5rem}
+        footer p{font-family:'Outfit',sans-serif;font-weight:300;font-size:0.7rem;color:var(--text-muted);letter-spacing:0.2em}
+
+        /* ANIMATIONS */
+        .reveal{opacity:0;transform:translateY(24px);transition:opacity 0.9s cubic-bezier(0.25,0.46,0.45,0.94),transform 0.9s cubic-bezier(0.25,0.46,0.45,0.94)}
+        .reveal.visible{opacity:1;transform:translateY(0)}
+        .reveal-d1{transition-delay:0.1s}.reveal-d2{transition-delay:0.2s}.reveal-d3{transition-delay:0.3s}.reveal-d4{transition-delay:0.4s}
+        .hero-anim{opacity:0;transform:translateY(16px);animation:heroIn 1s cubic-bezier(0.25,0.46,0.45,0.94) forwards}
+        .hero-anim-d1{animation-delay:0.2s}.hero-anim-d2{animation-delay:0.5s}.hero-anim-d3{animation-delay:0.8s}.hero-anim-d4{animation-delay:1.1s}.hero-anim-d5{animation-delay:1.8s}
+        @keyframes heroIn{to{opacity:1;transform:translateY(0)}}
+
+        /* RESPONSIVE */
+        @media(max-width:768px){
+            nav{padding:1rem 1.5rem}nav.scrolled{padding:0.75rem 1.5rem}
+            .section-inner{padding:5rem 1.5rem}.contact-inner{padding:5rem 1.5rem}
+            .capability-grid{grid-template-columns:1fr}.approach-layout{grid-template-columns:1fr;gap:3rem}
+            .hero-logo svg{height:100px}.scroll-indicator{display:none}
+            .hero-glow{width:420px;height:420px;filter:blur(40px)}
+            .hero-glow-2{width:280px;height:280px;filter:blur(50px);background:radial-gradient(circle,rgba(212,175,55,0.10) 0%,transparent 70%)}
+            [data-theme="dark"] .hero-glow{background:radial-gradient(circle,rgba(212,175,55,0.28) 0%,transparent 65%)}
+            [data-theme="dark"] .hero-glow-2{background:radial-gradient(circle,rgba(212,175,55,0.14) 0%,transparent 70%)}
+            [data-theme="light"] .hero-glow{filter:blur(40px)}
+            [data-theme="light"] .hero-glow-2{filter:blur(50px)}
+            .contact-actions{grid-template-columns:1fr}
+            .contact-btn{width:min(300px,100%);justify-content:center}
+        }
+        @media(max-width:480px){.hero-headline{font-size:1.15rem}}
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="cursor-glow" id="cursorGlow"></div>
+
+    <!-- Google One Tap (auto_prompt disabled — button-triggered only) -->
+    <div id="g_id_onload"
+        data-client_id="824360586771-a2itk7k825qs22n33m33774jtqlf1vem.apps.googleusercontent.com"
+        data-callback="handleGoogleOneTap"
+        data-auto_prompt="false">
+    </div>
+
+    <nav id="mainNav">
+        <div class="nav-wordmark">
+            <svg viewBox="0 0 550 420" xmlns="http://www.w3.org/2000/svg">
+                <path d="M32.67 0.5H372.67L322.67 68.5H144.67L309.67 351.5L271.67 411.5L32.67 0.5Z" fill="var(--logo-v)"/>
+                <path d="M292.67 250.5L330.67 315L521.67 0.5H441.67L292.67 250.5Z" fill="var(--logo-v)"/>
+                <path d="M409.551 2.0936L274.292 216.215L240.337 162.812L409.551 2.0936Z" fill="#D4AF37" stroke="#D4AF37" stroke-width="5"/>
+                <path d="M103.776 316.654L239.772 103L273.542 156.52L103.776 316.654Z" fill="#D4AF37" stroke="#D4AF37" stroke-width="5"/>
+            </svg>
+        </div>
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+            <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5M12 19.5V21M4.22 4.22l1.06 1.06M17.72 17.72l1.06 1.06M3 12h1.5M19.5 12H21M4.22 19.78l1.06-1.06M17.72 6.28l1.06-1.06M16.5 12a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z"/></svg>
+            <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0112.003 21c-5.385 0-9.75-4.365-9.75-9.75 0-4.128 2.566-7.659 6.19-9.079a.75.75 0 01.964.964 7.5 7.5 0 009.378 9.378.75.75 0 01.964.964z"/></svg>
+        </button>
+    </nav>
+
+    <section class="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-glow-2"></div>
+        <div class="hero-accent-line"></div>
+        <div class="hero-logo hero-anim hero-anim-d1">
+            <svg viewBox="0 0 550 518" xmlns="http://www.w3.org/2000/svg">
+                <path d="M32.67 0.5H372.67L322.67 68.5H144.67L309.67 351.5L271.67 411.5L32.67 0.5Z" fill="var(--logo-v)"/>
+                <path d="M292.67 250.5L330.67 315L521.67 0.5H441.67L292.67 250.5Z" fill="var(--logo-v)"/>
+                <path d="M409.551 2.0936L274.292 216.215L240.337 162.812L409.551 2.0936Z" fill="#D4AF37" stroke="#D4AF37" stroke-width="5"/>
+                <path d="M103.776 316.654L239.772 103L273.542 156.52L103.776 316.654Z" fill="#D4AF37" stroke="#D4AF37" stroke-width="5"/>
+                <path d="M39.26 516L1.3357e-05 425H22.75L57.07 505.6H43.68L78.52 425H99.45L60.06 516H39.26ZM150.232 517.56C143.039 517.56 136.366 516.39 130.212 514.05C124.146 511.71 118.859 508.417 114.352 504.17C109.932 499.923 106.466 494.94 103.952 489.22C101.526 483.5 100.312 477.26 100.312 470.5C100.312 463.74 101.526 457.5 103.952 451.78C106.466 446.06 109.976 441.077 114.482 436.83C118.989 432.583 124.276 429.29 130.342 426.95C136.409 424.61 142.996 423.44 150.102 423.44C157.296 423.44 163.882 424.61 169.862 426.95C175.929 429.29 181.172 432.583 185.592 436.83C190.099 441.077 193.609 446.06 196.122 451.78C198.636 457.413 199.892 463.653 199.892 470.5C199.892 477.26 198.636 483.543 196.122 489.35C193.609 495.07 190.099 500.053 185.592 504.3C181.172 508.46 175.929 511.71 169.862 514.05C163.882 516.39 157.339 517.56 150.232 517.56ZM150.102 499.62C154.176 499.62 157.902 498.927 161.282 497.54C164.749 496.153 167.782 494.16 170.382 491.56C172.982 488.96 174.976 485.883 176.362 482.33C177.836 478.777 178.572 474.833 178.572 470.5C178.572 466.167 177.836 462.223 176.362 458.67C174.976 455.117 172.982 452.04 170.382 449.44C167.869 446.84 164.879 444.847 161.412 443.46C157.946 442.073 154.176 441.38 150.102 441.38C146.029 441.38 142.259 442.073 138.792 443.46C135.412 444.847 132.422 446.84 129.822 449.44C127.222 452.04 125.186 455.117 123.712 458.67C122.326 462.223 121.632 466.167 121.632 470.5C121.632 474.747 122.326 478.69 123.712 482.33C125.186 485.883 127.179 488.96 129.692 491.56C132.292 494.16 135.326 496.153 138.792 497.54C142.259 498.927 146.029 499.62 150.102 499.62ZM215.72 516V425H236.78V498.84H282.41V516H215.72ZM294.177 516V425H315.237V498.84H360.867V516H294.177ZM415.31 517.56C408.117 517.56 401.444 516.39 395.29 514.05C389.224 511.71 383.937 508.417 379.43 504.17C375.01 499.923 371.544 494.94 369.03 489.22C366.604 483.5 365.39 477.26 365.39 470.5C365.39 463.74 366.604 457.5 369.03 451.78C371.544 446.06 375.054 441.077 379.56 436.83C384.067 432.583 389.354 429.29 395.42 426.95C401.487 424.61 408.074 423.44 415.18 423.44C422.374 423.44 428.96 424.61 434.94 426.95C441.007 429.29 446.25 432.583 450.67 436.83C455.177 441.077 458.687 446.06 461.2 451.78C463.714 457.413 464.97 463.653 464.97 470.5C464.97 477.26 463.714 483.543 461.2 489.35C458.687 495.07 455.177 500.053 450.67 504.3C446.25 508.46 441.007 511.71 434.94 514.05C428.96 516.39 422.417 517.56 415.31 517.56ZM415.18 499.62C419.254 499.62 422.98 498.927 426.36 497.54C429.827 496.153 432.86 494.16 435.46 491.56C438.06 488.96 440.054 485.883 441.44 482.33C442.914 478.777 443.65 474.833 443.65 470.5C443.65 466.167 442.914 462.223 441.44 458.67C440.054 455.117 438.06 452.04 435.46 449.44C432.947 446.84 429.957 444.847 426.49 443.46C423.024 442.073 419.254 441.38 415.18 441.38C411.107 441.38 407.337 442.073 403.87 443.46C400.49 444.847 397.5 446.84 394.9 449.44C392.3 452.04 390.264 455.117 388.79 458.67C387.404 462.223 386.71 466.167 386.71 470.5C386.71 474.747 387.404 478.69 388.79 482.33C390.264 485.883 392.257 488.96 394.77 491.56C397.37 494.16 400.404 496.153 403.87 497.54C407.337 498.927 411.107 499.62 415.18 499.62ZM510.698 517.56C503.418 517.56 496.441 516.607 489.768 514.7C483.095 512.707 477.721 510.15 473.648 507.03L480.798 491.17C484.698 493.943 489.291 496.24 494.578 498.06C499.951 499.793 505.368 500.66 510.828 500.66C514.988 500.66 518.325 500.27 520.838 499.49C523.438 498.623 525.345 497.453 526.558 495.98C527.771 494.507 528.378 492.817 528.378 490.91C528.378 488.483 527.425 486.577 525.518 485.19C523.611 483.717 521.098 482.547 517.978 481.68C514.858 480.727 511.391 479.86 507.578 479.08C503.851 478.213 500.081 477.173 496.268 475.96C492.541 474.747 489.118 473.187 485.998 471.28C482.878 469.373 480.321 466.86 478.328 463.74C476.421 460.62 475.468 456.633 475.468 451.78C475.468 446.58 476.855 441.857 479.628 437.61C482.488 433.277 486.735 429.853 492.368 427.34C498.088 424.74 505.238 423.44 513.818 423.44C519.538 423.44 525.171 424.133 530.718 425.52C536.265 426.82 541.161 428.813 545.408 431.5L538.908 447.49C534.661 445.063 530.415 443.287 526.168 442.16C521.921 440.947 517.761 440.34 513.688 440.34C509.615 440.34 506.278 440.817 503.678 441.77C501.078 442.723 499.215 443.98 498.088 445.54C496.961 447.013 496.398 448.747 496.398 450.74C496.398 453.08 497.351 454.987 499.258 456.46C501.165 457.847 503.678 458.973 506.798 459.84C509.918 460.707 513.341 461.573 517.068 462.44C520.881 463.307 524.651 464.303 528.378 465.43C532.191 466.557 535.658 468.073 538.778 469.98C541.898 471.887 544.411 474.4 546.318 477.52C548.311 480.64 549.308 484.583 549.308 489.35C549.308 494.463 547.878 499.143 545.018 503.39C542.158 507.637 537.868 511.06 532.148 513.66C526.515 516.26 519.365 517.56 510.698 517.56Z" fill="var(--logo-text)"/>
+            </svg>
+        </div>
+        <p class="hero-headline hero-anim hero-anim-d2">We eliminate the work<br>that shouldn't exist.</p>
+        <div class="hero-divider hero-anim hero-anim-d3"></div>
+        <p class="hero-slogan hero-anim hero-anim-d4">Where Time Becomes Value</p>
+        <div class="scroll-indicator hero-anim hero-anim-d5"><span>Scroll</span><div class="scroll-line"></div></div>
+    </section>
+
+    <div class="section-divider"></div>
+    <section class="what-section">
+        <div class="section-inner">
+            <div class="section-tag reveal">The Problem</div>
+            <h2 class="section-heading reveal reveal-d1">The friction of repetition<br>is costing you more than time</h2>
+            <p class="section-body reveal reveal-d2">Talented teams buried in manual workflows. Critical requests lost in crowded inboxes. Compliance deadlines tracked on spreadsheets no one trusts. This friction compounds silently — until it costs you.</p>
+            <div class="capability-grid reveal reveal-d3">
+                <div class="capability">
+                    <div class="capability-number">01</div>
+                    <div class="capability-title">The Inbox Nobody Owns</div>
+                    <div class="capability-desc">Critical requests, policy questions, time-sensitive follow-ups — all landing in the same thread, owned by no one, until something slips through.</div>
+                </div>
+                <div class="capability">
+                    <div class="capability-number">02</div>
+                    <div class="capability-title">The Spreadsheet Nobody Trusts</div>
+                    <div class="capability-desc">Deadlines. Renewals. Regulatory requirements. Managed manually by whoever was available. One missed row. One missed deadline.</div>
+                </div>
+                <div class="capability">
+                    <div class="capability-number">03</div>
+                    <div class="capability-title">The Audit You're Not Ready For</div>
+                    <div class="capability-desc">Non-compliance isn't discovered until it costs you. Manual tracking was never designed to keep up with evolving regulations and growing teams.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+    <section class="approach-section">
+        <div class="section-inner">
+            <div class="section-tag reveal">How We Think</div>
+            <h2 class="section-heading reveal reveal-d1">We don't add another tool.<br>We remove the friction.</h2>
+            <div class="approach-layout">
+                <div class="approach-quote reveal reveal-d2">
+                    Most solutions demand new processes, new dashboards, new habits.
+                    We believe the opposite — technology should <em>disappear into your workflow</em> and quietly give you back
+                    the hours it stole. <em>That's it.</em>
+                </div>
+                <div class="approach-pillars">
+                    <div class="pillar reveal reveal-d2">
+                        <div class="pillar-title">Built to solve one thing well</div>
+                        <div class="pillar-desc">Not a platform that does everything. A focused system that eliminates one specific friction point — completely.</div>
+                    </div>
+                    <div class="pillar reveal reveal-d3">
+                        <div class="pillar-title">Works the way your team already works</div>
+                        <div class="pillar-desc">No new dashboards to learn. No workflows to redesign. It fits into what you already do — and removes the parts that slow you down.</div>
+                    </div>
+                    <div class="pillar reveal reveal-d4">
+                        <div class="pillar-title">Measured in hours returned</div>
+                        <div class="pillar-desc">Not features shipped. Not models deployed. The only metric that matters is how many hours your team gets back every month.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+    <section class="contact-section">
+        <div class="contact-inner">
+            <div class="section-tag reveal" style="justify-content:center">Early Access</div>
+            <h2 class="contact-heading reveal reveal-d1">Ready to get your time back?</h2>
+            <p class="contact-sub reveal reveal-d2">Join the early access list. No sales calls. No spam.</p>
+            <div class="reveal reveal-d3" style="max-width:400px;margin:0 auto;text-align:left">
+                <!-- Honeypot field — hidden from users, must remain empty -->
+                <input type="text" id="ea-hp" name="_hp" style="display:none" tabindex="-1" autocomplete="off">
+
+                <!-- Google Sign-In button -->
+                <div class="ea-google-btn-wrap" id="ea-google-btn-wrap">
+                    <div id="g_id_signin"
+                        class="g_id_signin"
+                        data-type="standard"
+                        data-shape="rectangular"
+                        data-theme="outline"
+                        data-text="continue_with"
+                        data-size="large"
+                        data-logo_alignment="left"
+                        data-width="400">
+                    </div>
+                    <div class="ea-consent-wrap" style="margin-top:8px">
+                        <input type="checkbox" id="ea-google-consent">
+                        <label for="ea-google-consent">I agree to receive early access updates. <a href="mailto:pon@vollos.ai">Privacy policy</a></label>
+                    </div>
+                    <div class="ea-error" id="ea-google-consent-error">Please check the box to agree before signing in.</div>
+                </div>
+
+                <!-- "or" divider -->
+                <div class="ea-or-divider" id="ea-or-divider">
+                    <span>or</span>
+                </div>
+
+                <div class="ea-form" id="ea-form">
+                    <input class="ea-input" type="text" id="ea-name" placeholder="First name (optional)" autocomplete="given-name">
+                    <input class="ea-input" type="text" id="ea-company" placeholder="Company name (optional)" autocomplete="organization">
+                    <input class="ea-input" type="email" id="ea-email" required placeholder="Work email" autocomplete="email">
+                    <div class="ea-error" id="ea-email-error">Please enter a valid email address.</div>
+
+                    <div class="ea-consent-wrap">
+                        <input type="checkbox" id="ea-consent" required>
+                        <label for="ea-consent">I agree to receive early access updates. <a href="mailto:pon@vollos.ai">Privacy policy</a></label>
+                    </div>
+                    <div class="ea-error" id="ea-consent-error">Please confirm your consent.</div>
+
+                    <div id="turnstile-widget" class="cf-turnstile" data-sitekey="0x4AAAAAACwI2bZXSnd_SpVT" data-theme="dark"></div>
+                    <div class="ea-error" id="ea-turnstile-error">Please complete the security check.</div>
+
+                    <button class="ea-btn" type="button" id="ea-submit">Get Early Access &#8594;</button>
+                    <div class="ea-error" id="ea-form-error" style="text-align:center"></div>
+                </div>
+
+                <div class="ea-success" id="ea-success">
+                    You're on the list. We'll be in touch.
+                </div>
+
+                <p class="ea-note">No spam. No sales calls.</p>
+            </div>
+            <div class="contact-actions reveal reveal-d4">
+                <a href="mailto:pon&#64;vollos.ai" class="contact-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/></svg>
+                    <span>pon&#64;vollos.ai</span>
+                </a>
+                <a href="https://www.linkedin.com/in/chalermpon-ananwattanakit-2361423b7/" target="_blank" rel="noopener noreferrer" class="contact-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                    LinkedIn
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-line"></div>
+        <p>&copy; 2026 VOLLOS. All rights reserved.</p>
+    </footer>
+
+    <script>
+        // --- Theme toggle ---
+        var d = document, h = d.documentElement,
+            t = d.getElementById('themeToggle'),
+            s = t.querySelector('.icon-sun'),
+            m = t.querySelector('.icon-moon');
+
+        function setT(v) {
+            h.setAttribute('data-theme', v);
+            try { localStorage.setItem('vollos-theme', v); } catch(e) {}
+            s.style.display = v === 'dark' ? 'block' : 'none';
+            m.style.display = v === 'light' ? 'block' : 'none';
+            // Update Turnstile theme if already rendered
+            var tw = d.getElementById('turnstile-widget');
+            if (tw) tw.setAttribute('data-theme', v);
+        }
+        var sv;
+        try { sv = localStorage.getItem('vollos-theme'); } catch(e) {}
+        if (sv) { setT(sv); }
+        else if (window.matchMedia('(prefers-color-scheme:light)').matches) { setT('light'); }
+        else { setT('dark'); }
+        try {
+            window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('vollos-theme')) setT(e.matches ? 'dark' : 'light');
+            });
+        } catch(e) {}
+        t.addEventListener('click', function() {
+            setT(h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+        });
+
+        // --- Nav scroll ---
+        var nav = d.getElementById('mainNav');
+        window.addEventListener('scroll', function() {
+            nav.classList.toggle('scrolled', window.scrollY > 60);
+        });
+
+        // --- Reveal on scroll ---
+        var obs = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) entry.target.classList.add('visible');
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+        d.querySelectorAll('.reveal').forEach(function(el) { obs.observe(el); });
+
+        // --- Cursor glow ---
+        var glow = d.getElementById('cursorGlow'), gx = 0, gy = 0, cx = 0, cy = 0, gV = false;
+        if (glow && window.matchMedia('(hover:hover)').matches) {
+            d.addEventListener('mousemove', function(e) {
+                gx = e.clientX; gy = e.clientY;
+                if (!gV) { glow.classList.add('visible'); gV = true; }
+            });
+            d.addEventListener('mouseleave', function() {
+                glow.classList.remove('visible'); gV = false;
+            });
+            (function tick() {
+                cx += (gx - cx) * 0.08;
+                cy += (gy - cy) * 0.08;
+                glow.style.left = cx + 'px';
+                glow.style.top = cy + 'px';
+                requestAnimationFrame(tick);
+            })();
+        }
+
+        // --- Form helpers ---
+        function showError(id, msg) {
+            var el = d.getElementById(id);
+            if (el) { el.textContent = msg; el.style.display = 'block'; }
+        }
+        function hideError(id) {
+            var el = d.getElementById(id);
+            if (el) { el.style.display = 'none'; }
+        }
+        function clearErrors() {
+            ['ea-email-error', 'ea-consent-error', 'ea-turnstile-error', 'ea-form-error'].forEach(hideError);
+            var emailInput = d.getElementById('ea-email');
+            if (emailInput) emailInput.classList.remove('ea-field-error');
+        }
+
+        function showSuccess() {
+            var form = d.getElementById('ea-form');
+            var success = d.getElementById('ea-success');
+            var googleBtn = d.getElementById('ea-google-btn-wrap');
+            var orDivider = d.getElementById('ea-or-divider');
+            if (form) form.style.display = 'none';
+            if (googleBtn) googleBtn.style.display = 'none';
+            if (orDivider) orDivider.style.display = 'none';
+            if (success) success.style.display = 'block';
+        }
+
+        // --- API base URL (dev: localhost:3001, prod: same origin) ---
+        var API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+            ? 'http://localhost:3001' : '';
+
+        // --- CSRF + lead submission ---
+        async function submitLead(name, company, email, consentGiven, turnstileToken) {
+            var csrfRes = await fetch(API_BASE + '/api/v1/csrf', { credentials: 'include' });
+            if (!csrfRes.ok) throw new Error('Failed to get CSRF token');
+            // NOTE: CSRF token is returned in response body (not readable from HttpOnly cookie)
+            // SameSite=Strict mitigates XSS-based token theft in cross-site scenarios
+            var csrfData = await csrfRes.json();
+            var token = csrfData.token;
+
+            var res = await fetch(API_BASE + '/api/v1/leads', {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': token
+                },
+                body: JSON.stringify({
+                    email: email,
+                    name: name || undefined,
+                    company: company || undefined,
+                    source: 'form',
+                    productSlug: 'general',
+                    consentGiven: consentGiven,
+                    turnstileToken: turnstileToken,
+                    _hp: d.getElementById('ea-hp').value
+                })
+            });
+            return res;
+        }
+
+        // --- Google Sign-In callback (shared by button + One Tap) ---
+        async function handleGoogleOneTap(response) {
+            var googleConsentEl = d.getElementById('ea-google-consent');
+            var googleConsentError = d.getElementById('ea-google-consent-error');
+            if (!googleConsentEl || !googleConsentEl.checked) {
+                if (googleConsentError) {
+                    googleConsentError.style.display = 'block';
+                    googleConsentError.focus();
+                }
+                return;
+            }
+            if (googleConsentError) googleConsentError.style.display = 'none';
+            try {
+                var csrfRes = await fetch(API_BASE + '/api/v1/csrf', { credentials: 'include' });
+                var csrfData = await csrfRes.json();
+                var token = csrfData.token;
+
+                var res = await fetch(API_BASE + '/api/v1/leads/google', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': token
+                    },
+                    body: JSON.stringify({
+                        credential: response.credential,
+                        productSlug: 'general',
+                        consentGiven: !!(d.getElementById('ea-google-consent') && d.getElementById('ea-google-consent').checked)
+                    })
+                });
+                if (res.ok) showSuccess();
+            } catch(e) {
+                // Silent fail — user can still use the manual form
+            }
+        }
+
+        // --- Initialize Google Identity Services (explicit renderButton) ---
+        // Guard: ensure the GSI init runs exactly once per page load.
+        // Without this, both window.onGoogleLibraryLoad and the immediate invocation below
+        // could fire (when GSI is cached), producing the [GSI_LOGGER] "called multiple times" warning.
+        var __gsiInitialized = false;
+        function initGoogleSignIn() {
+            if (__gsiInitialized) return;
+            if (!window.google || !window.google.accounts) return;
+            __gsiInitialized = true;
+            var clientId = '824360586771-a2itk7k825qs22n33m33774jtqlf1vem.apps.googleusercontent.com';
+            google.accounts.id.initialize({
+                client_id: clientId,
+                callback: handleGoogleOneTap,
+                auto_select: false
+            });
+            var btnEl = d.getElementById('g_id_signin');
+            if (btnEl) {
+                // Detect dark/light theme for button appearance
+                var isDark = (d.documentElement.getAttribute('data-theme') !== 'light');
+                google.accounts.id.renderButton(btnEl, {
+                    type: 'standard',
+                    shape: 'rectangular',
+                    theme: isDark ? 'filled_black' : 'outline',
+                    text: 'continue_with',
+                    size: 'large',
+                    logo_alignment: 'left',
+                    width: btnEl.parentElement ? btnEl.parentElement.offsetWidth || 400 : 400
+                });
+            }
+        }
+
+        // Run when GSI script is ready — it calls window.onGoogleLibraryLoad if defined.
+        // The __gsiInitialized guard above makes this callback idempotent with the
+        // immediate invocation below (covers the "script already cached" race).
+        window.onGoogleLibraryLoad = initGoogleSignIn;
+        // Also try immediately in case GSI already loaded (e.g., cached)
+        if (window.google && window.google.accounts) initGoogleSignIn();
+
+        // --- Form submit handler ---
+        var eaBtn = d.getElementById('ea-submit');
+        if (eaBtn) {
+            eaBtn.addEventListener('click', async function() {
+                clearErrors();
+
+                var name = (d.getElementById('ea-name').value || '').trim();
+                var company = (d.getElementById('ea-company').value || '').trim();
+                var email = (d.getElementById('ea-email').value || '').trim();
+                var consent = d.getElementById('ea-consent').checked;
+                var turnstileToken = '';
+
+                // Get Turnstile response
+                try {
+                    var cfInput = d.querySelector('[name="cf-turnstile-response"]');
+                    turnstileToken = cfInput ? cfInput.value : '';
+                    if (!turnstileToken && window.turnstile) {
+                        turnstileToken = window.turnstile.getResponse() || '';
+                    }
+                } catch(e) {}
+
+                // --- Validate ---
+                var valid = true;
+
+                if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                    showError('ea-email-error', 'Please enter a valid email address.');
+                    d.getElementById('ea-email').classList.add('ea-field-error');
+                    valid = false;
+                }
+
+                if (!consent) {
+                    showError('ea-consent-error', 'Please confirm your consent.');
+                    valid = false;
+                }
+
+                if (!turnstileToken) {
+                    showError('ea-turnstile-error', 'Please complete the security check.');
+                    valid = false;
+                }
+
+                if (!valid) return;
+
+                // --- Loading state ---
+                eaBtn.textContent = 'Sending...';
+                eaBtn.disabled = true;
+
+                try {
+                    var res = await submitLead(name, company, email, consent, turnstileToken);
+
+                    if (res.status === 201 || res.status === 200) {
+                        showSuccess();
+                    } else if (res.status === 429) {
+                        clearErrors();
+                        showError('ea-form-error', 'Too many attempts. Please try again later.');
+                        eaBtn.textContent = 'Get Early Access \u2192';
+                        eaBtn.disabled = false;
+                        if (window.turnstile) window.turnstile.reset();
+                    } else if (res.status === 422) {
+                        var body = {};
+                        try { body = await res.json(); } catch(e) {}
+                        showError('ea-form-error', body.error || 'Validation failed. Please check your details.');
+                        eaBtn.textContent = 'Get Early Access \u2192';
+                        eaBtn.disabled = false;
+                        if (window.turnstile) window.turnstile.reset();
+                    } else {
+                        showError('ea-form-error', 'Something went wrong. Please try again.');
+                        eaBtn.textContent = 'Get Early Access \u2192';
+                        eaBtn.disabled = false;
+                        if (window.turnstile) window.turnstile.reset();
+                    }
+                } catch(e) {
+                    showError('ea-form-error', 'Something went wrong. Please try again.');
+                    eaBtn.textContent = 'Get Early Access \u2192';
+                    eaBtn.disabled = false;
+                    if (window.turnstile) window.turnstile.reset();
+                }
+            });
+        }
+
+        // --- Clear field errors on input ---
+        var emailInput = d.getElementById('ea-email');
+        if (emailInput) {
+            emailInput.addEventListener('input', function() {
+                hideError('ea-email-error');
+                this.classList.remove('ea-field-error');
+            });
+        }
+        var consentInput = d.getElementById('ea-consent');
+        if (consentInput) {
+            consentInput.addEventListener('change', function() {
+                hideError('ea-consent-error');
+            });
+        }
+    </script>
+</body>
+</html>

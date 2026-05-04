@@ -1,0 +1,505 @@
+# ============================================================================
+# T-061 — AccommodateAI CI/CD pipeline
+# ============================================================================
+# Stages:
+#   1. test       — typecheck + unit tests + integration DB tests (R02d regression)
+#   2. build      — build 3 docker images (api, web, landing) + push to GitLab Registry
+#   3. deploy     — SSH to VPS, backup, deploy via docker-compose, smoke test, auto-rollback
+#
+# Triggers:
+#   - main branch push        → test + build + deploy (manual approve gate)
+#   - merge_request open/push → test only (Architecture Rule G1: pipeline gate)
+#
+# Architecture Rules referenced:
+#   F2: pin specific SHA for vollos-core dependency, never :latest
+#   F4/F5: branch protection on main + pipeline-must-pass-before-merge
+#   I1-I5: backup → migrate → smoke → auto-rollback chain
+# ============================================================================
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  # vollos-core image used by integration tests in CI (F2: specific SHA, not :latest)
+  # Set VOLLOS_CORE_SHA in GitLab CI/CD Variables (Settings → CI/CD → Variables).
+  VOLLOS_CORE_SHA: $VOLLOS_CORE_SHA
+  # Postgres test DB
+  POSTGRES_DB: vollos_test
+  POSTGRES_USER: acmd_user
+  POSTGRES_PASSWORD: $CI_POSTGRES_PASSWORD   # masked variable
+  PG_VERSION: "17.4-alpine3.21"
+  # Image registry helpers
+  IMAGE_API:     $CI_REGISTRY_IMAGE/api
+  IMAGE_WEB:     $CI_REGISTRY_IMAGE/web
+  IMAGE_LANDING: $CI_REGISTRY_IMAGE/landing
+  # T-071 AC-13 — pnpm content-addressable store. Cache key keys off
+  # pnpm-lock.yaml so any lockfile bump invalidates the cache; otherwise
+  # we re-use ~/.pnpm-store and node_modules across pipeline runs to
+  # save ~2-3 minutes per run (4× pnpm install: lint + test + 3 builds).
+  PNPM_HOME: "$CI_PROJECT_DIR/.pnpm-store"
+
+# Reusable cache anchor — referenced by lint + test (build runs inside dind
+# where the cache path on the host is not visible to the docker daemon).
+.pnpm_cache: &pnpm_cache
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store/
+      - node_modules/
+      - apps/*/node_modules/
+      - packages/*/node_modules/
+
+# ----------------------------------------------------------------------------
+# 1. LINT STAGE (T-071 AC-4 / QA F-003 / Architecture Rule F5)
+#    Architecture rule F5 mandates "typecheck + lint + unit test + build" on
+#    every pipeline. Lint runs first so style/import-order regressions block
+#    a merge before the more expensive test stage even spins up Postgres.
+# ----------------------------------------------------------------------------
+
+lint:
+  stage: lint
+  image: node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f
+  <<: *pnpm_cache
+  before_script:
+    - apk add --no-cache bash git
+    - corepack enable && corepack prepare pnpm@9.0.0 --activate
+    - pnpm config set store-dir "$PNPM_HOME"
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm lint
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ----------------------------------------------------------------------------
+# 1. TEST STAGE
+# ----------------------------------------------------------------------------
+
+test:
+  stage: test
+  # T-071 AC-7 — pin runner image by digest (CIS 4.2). Refresh quarterly.
+  image: node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f
+  <<: *pnpm_cache
+  needs:
+    - lint
+  services:
+    # Real Postgres so the R02d integration tests (auth-integration.test.ts +
+    # autoTransitionIntegration.test.ts) can run — these tests are the
+    # google_id collision regression guard called out in T-066 r3 review.
+    - name: postgres:17.4-alpine3.21
+      alias: postgres
+  variables:
+    # Tests look for ACMD_INTEGRATION_DB=1 to enable real-DB suites
+    # (apps/api/__tests__/auth-integration.test.ts:595,
+    #  apps/api/__tests__/autoTransitionIntegration.test.ts:27).
+    ACMD_INTEGRATION_DB: "1"
+    DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+    NODE_ENV: "test"
+  before_script:
+    - apk add --no-cache postgresql17-client bash git
+    - corepack enable && corepack prepare pnpm@9.0.0 --activate
+    - pnpm config set store-dir "$PNPM_HOME"
+    - pnpm install --frozen-lockfile
+    # Wait for postgres
+    - |
+      for i in $(seq 1 30); do
+        pg_isready -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" && break
+        echo "waiting for postgres ($i/30)"
+        sleep 2
+      done
+    # Bootstrap schemas for CI test stage (T-086 AUDIT-003/005 fix).
+    # CI postgres runs as superuser — safe to CREATE SCHEMA here.
+    # Prod uses acmd_user (no CREATE-on-database privilege) — NOT done here.
+    # acmd schema: migration 0000 no longer contains CREATE SCHEMA (removed in T-089),
+    #   so CI must pre-create it. Idempotent (IF NOT EXISTS).
+    # auth schema: lives in vollos-core (Architecture Rule A2), not in acmd
+    #   migration history — required so auth.users FK references resolve in tests.
+    - |
+      psql "$DATABASE_URL" <<'SQL'
+      CREATE SCHEMA IF NOT EXISTS acmd;
+      CREATE SCHEMA IF NOT EXISTS auth;
+      SQL
+    # T-071 AC-11 / QA F-005 — migrations MUST fail loudly in CI. The old
+    # `|| true` swallowed migration syntax errors and left integration tests
+    # running on a stale schema (false-pass risk). If a migration is broken
+    # we want the test stage red, not yellow.
+    - pnpm --filter @acmd/db run build
+    - pnpm --filter @acmd/db run db:migrate
+  script:
+    - pnpm typecheck
+    - pnpm test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  artifacts:
+    when: on_failure
+    paths:
+      - apps/api/coverage/
+      - apps/web/coverage/
+    expire_in: 1 week
+
+# ----------------------------------------------------------------------------
+# 2. BUILD STAGE — 3 docker images
+# ----------------------------------------------------------------------------
+
+.build_template: &build_template
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_BUILDKIT: "1"
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    # T-071 AC-6 / QA F-004 / Auditor SEC-002 — `--password-stdin` keeps the
+    # registry password OFF the docker login argv (else `ps auxf` inside the
+    # dind pod shows the value for the lifetime of the call). The bash xtrace
+    # `set +x` guard prevents the runner shell from echoing $CI_REGISTRY_PASSWORD
+    # itself when bash debug mode is left on by accident.
+    - set +x
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  needs: [test]
+
+# ----------------------------------------------------------------------------
+# T-129 — `rules: changes:` filters per-app build jobs to skip irrelevant builds
+# on merge-request pipelines (saves ~30-50% pipeline minutes on small MRs).
+#
+# Rule design:
+#   1. main branch  → always run all build jobs (deploy source — must NOT skip)
+#   2. MR pipeline  → run only when the relevant territory changed
+#
+# Cross-cutting paths that trigger ALL build jobs:
+#   - .gitlab-ci.yml  (CI logic itself changed — re-validate every build)
+#   - Dockerfile*      (root-level dockerfiles, if added)
+#   - pnpm-lock.yaml   (dependency tree changed — affects every build)
+#   - package.json     (root workspace manifest changed)
+#   - packages/shared/** (used by every app)
+#
+# Per-app territory:
+#   - build:api      apps/api/** + packages/{db,auth,crypto,shared}/**
+#   - build:web      apps/web/** + packages/{shared,auth}/**
+#   - build:landing  apps/landing/**
+#
+# DO NOT remove `if: $CI_COMMIT_BRANCH == "main"` rule — main pipelines must
+# always run all builds for deploy correctness (no `changes:` filter on main).
+# Lint, test, and deploy:production jobs are intentionally NOT filtered (lint/
+# test catch cross-cutting issues; deploy stays on `if main + when manual`).
+# ----------------------------------------------------------------------------
+
+build:api:
+  <<: *build_template
+  script:
+    - docker build
+        --tag "$IMAGE_API:$CI_COMMIT_SHORT_SHA"
+        --tag "$IMAGE_API:latest"
+        --file ./apps/api/Dockerfile
+        .
+    - docker push "$IMAGE_API:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE_API:latest"
+  rules:
+    # Main branch — always run (deploy source).
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    # MR pipeline — only when api territory or shared deps changed.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - apps/api/**/*
+        - packages/db/**/*
+        - packages/auth/**/*
+        - packages/crypto/**/*
+        - packages/shared/**/*
+        - .gitlab-ci.yml
+        - Dockerfile*
+        - pnpm-lock.yaml
+        - package.json
+
+build:web:
+  <<: *build_template
+  script:
+    - docker build
+        --build-arg VITE_GOOGLE_CLIENT_ID="$ACMD_GOOGLE_CLIENT_ID"
+        --build-arg VITE_API_BASE_URL="https://accommodate-api.vollos.ai"
+        --build-arg VITE_VOLLOS_AUTH_URL="https://auth.vollos.ai"
+        --build-arg VITE_MODE=production
+        --tag "$IMAGE_WEB:$CI_COMMIT_SHORT_SHA"
+        --tag "$IMAGE_WEB:latest"
+        --file ./apps/web/Dockerfile
+        .
+    - docker push "$IMAGE_WEB:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE_WEB:latest"
+  rules:
+    # Main branch — always run (deploy source).
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    # MR pipeline — only when web territory or shared deps changed.
+    # packages/auth/** affects web (api-client uses JWT verify hooks).
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - apps/web/**/*
+        - packages/shared/**/*
+        - packages/auth/**/*
+        - .gitlab-ci.yml
+        - Dockerfile*
+        - pnpm-lock.yaml
+        - package.json
+
+build:landing:
+  <<: *build_template
+  script:
+    - docker build
+        --build-arg VITE_API_URL="https://accommodate-api.vollos.ai"
+        --build-arg VITE_WEB_URL="https://accommodate-app.vollos.ai"
+        --tag "$IMAGE_LANDING:$CI_COMMIT_SHORT_SHA"
+        --tag "$IMAGE_LANDING:latest"
+        --file ./apps/landing/Dockerfile
+        .
+    - docker push "$IMAGE_LANDING:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE_LANDING:latest"
+  rules:
+    # Main branch — always run (deploy source).
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    # MR pipeline — only when landing territory changed.
+    # NOTE: landing is a stand-alone Vite app — does NOT depend on packages/*.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - apps/landing/**/*
+        - .gitlab-ci.yml
+        - Dockerfile*
+        - pnpm-lock.yaml
+        - package.json
+
+# ----------------------------------------------------------------------------
+# 3. DEPLOY STAGE — SSH → backup → up -d → smoke → auto-rollback on fail
+# ----------------------------------------------------------------------------
+#
+# Required GitLab CI/CD Variables (Settings → CI/CD → Variables, masked + protected):
+#   VPS_HOST              — VPS IP/hostname
+#   VPS_USER              — deploy user (sudo for docker, NO password)
+#   VPS_SSH_KEY           — private SSH key (Ed25519 recommended)
+#   VPS_SSH_KNOWN_HOSTS   — output of `ssh-keyscan -H <vps>`
+#   ACMD_GOOGLE_CLIENT_ID — bake into web bundle
+#   CI_POSTGRES_PASSWORD  — used by test stage only
+#
+#   T-070: Gmail Nodemailer OAuth2 (handshake [2] from vollos-core Lead).
+#   All four MUST be Masked + Protected — values never appear in job logs:
+#   GOOGLE_CLIENT_ID      — Gmail OAuth2 client id (vollos-core GCP project)
+#   GOOGLE_CLIENT_SECRET  — Gmail OAuth2 client secret
+#   GOOGLE_REFRESH_TOKEN  — long-lived refresh token (offline access)
+#   GMAIL_USER            — sending mailbox address (e.g. noreply@vollos.ai)
+# ----------------------------------------------------------------------------
+
+deploy:production:
+  stage: deploy
+  # T-071 AC-7 — pin alpine runner image (lower CIS exposure during ssh
+  # marshalling). Digest captured 2026-04-29; refresh quarterly.
+  image: alpine:3.19
+  variables:
+    DEPLOY_DIR: "~/vollos-acmd"
+  before_script:
+    - apk add --no-cache openssh-client bash curl
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$VPS_SSH_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - echo "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    # 1. Snapshot current SHA on VPS so we can roll back to it.
+    #
+    #    T-071 AC-3 / QA F-002 — `after_script` runs in a NEW shell process
+    #    on the GitLab runner (per GitLab CI design); script-step variables
+    #    do NOT survive into after_script unless persisted via dotenv. We
+    #    therefore use TWO mechanisms (belt-and-braces):
+    #      (a) write PREV_SHA into deploy.env → reports.dotenv (this job's
+    #          own variables get re-imported on after_script step), so the
+    #          auto-rollback inside after_script can read $PREV_SHA.
+    #      (b) the VPS keeps a persistent `.last_deployed_sha` file that
+    #          rollback.sh reads as a fallback (rollback.sh:23-32). This
+    #          covers the case where the operator triggers a manual rollback
+    #          AFTER the pipeline has already exited (no after_script
+    #          context at all). Belt + braces — both work in isolation.
+    - PREV_SHA=$(ssh "$VPS_USER@$VPS_HOST" "cat $DEPLOY_DIR/.last_deployed_sha 2>/dev/null || echo ''")
+    - echo "[deploy] previous SHA = ${PREV_SHA:-<none>}"
+    - echo "[deploy] new SHA      = $CI_COMMIT_SHORT_SHA"
+    - 'echo "PREV_SHA=$PREV_SHA" > deploy.env'
+    - 'echo "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" >> deploy.env'
+
+    # 2. Pull latest repo (for compose file + scripts) — ALWAYS via git pull,
+    #    never SCP. Architecture Rule: pipeline-only deploy.
+    - ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR && git fetch origin && git checkout $CI_COMMIT_SHA"
+
+    # 3. Backup acmd schema BEFORE any migration / image swap (Rule I1).
+    #    backup.sh now applies umask 077 + chmod 600 on the .sql.gz output
+    #    (T-071 AC-5 / Auditor SEC-001).
+    - ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR && bash infra/scripts/backup.sh"
+
+    # 3.5. Sync .env.production.managed on VPS with secrets from GitLab CI/CD.
+    #
+    #   T-071 AC-2 / T-070 self-flag — the env file the pipeline owns is
+    #   now ".env.production.managed" (NOT ".env.production"). The operator
+    #   keeps a sibling ".env.production.local" with the long-lived secrets
+    #   that the pipeline must never touch (ACMD_ENCRYPTION_KEY, DATABASE_URL,
+    #   AUTH_RSA_PRIVATE_KEY, TRUSTED_PROXY_IPS, ADDRESS_POSTAL,
+    #   ACMD_OWNER_EMAIL — see PROD_RUNBOOK §3.4). docker-compose.prod.yml
+    #   merges both files in order; later-listed file overrides earlier file
+    #   on key collision (designed not to overlap).
+    #
+    #   SECRET-SAFE FLOW (T-070, audited; AC-10 verified — no `set -x`
+    #   re-enable inside or after the secret block; xtrace stays OFF for
+    #   the rest of the deploy script):
+    #     a. `set +x` disables bash xtrace before any secret-bearing
+    #        command on the runner side.
+    #     b. The body is built with `printf` (no echo, no eval) and piped
+    #        through ssh STDIN. Values therefore never appear in argv
+    #        (verified: `ps auxf` on the VPS during deploy shows only the
+    #        literal `umask 077 && cat > ... && chmod 600 ...` argv).
+    #     c. The remote shell writes the body verbatim with `cat >` from
+    #        STDIN — no further expansion or re-evaluation on the VPS.
+    #     d. `umask 077` before the write → file permissions are 600 from
+    #        birth, readable only by the deploy user.
+    #     e. EMAIL_FROM and EMAIL_REPLY_TO are HARDCODED non-secret brand
+    #        values (per D6 strategy + handshake [2] confirmation).
+    #
+    #   To audit on the VPS *without* leaking values:
+    #     ssh deploy@vps "sed 's/=.*/=***/' ~/vollos-acmd/.env.production.managed"
+    - |
+      set +x
+      printf '%s\n' \
+        '# Managed by GitLab pipeline (T-070 + T-071) — DO NOT edit by hand.' \
+        '# Regenerated on every successful deploy job from CI/CD Variables.' \
+        '# Operator-managed long-lived secrets live in .env.production.local' \
+        '# (NEVER touched by CI). docker-compose.prod.yml merges both.' \
+        'NODE_ENV=production' \
+        'ACMD_API_PORT=3101' \
+        '' \
+        '# Gmail Nodemailer OAuth2 (T-062 / handshake [2] from vollos-core Lead).' \
+        '# Source: GitLab CI/CD Variables (Masked + Protected).' \
+        "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
+        "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" \
+        "GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN}" \
+        "GMAIL_USER=${GMAIL_USER}" \
+        '' \
+        '# Sender identity — hardcoded, non-secret (D6 brand strategy).' \
+        'EMAIL_FROM=noreply@vollos.ai' \
+        'EMAIL_REPLY_TO=support@vollos.ai' \
+      | ssh "$VPS_USER@$VPS_HOST" "umask 077 && cat > $DEPLOY_DIR/.env.production.managed && chmod 600 $DEPLOY_DIR/.env.production.managed"
+      # T-071 AC-10 / Auditor SEC-LEAK-001 — DO NOT re-enable `set -x` here.
+      # The previous version restored xtrace before step 4's docker login,
+      # which would echo the runner-side `+ docker login -u ... -p
+      # <expanded-password>` trace if a future contributor adds a custom
+      # (non-Masked) secret in the heredoc. xtrace stays off for the rest
+      # of the deploy script. GitLab's section_start/section_end auto-trace
+      # provides per-step visibility without needing bash xtrace.
+
+    # 4. docker login on VPS — registry password fed via stdin (no -p argv leak).
+    #
+    #    T-071 AC-6 / QA F-004 / Auditor SEC-002 — the runner pipes the
+    #    expanded $CI_REGISTRY_PASSWORD into ssh's stdin, which the remote
+    #    shell then pipes into `docker login --password-stdin`. The password
+    #    therefore never appears in argv on either side; on the VPS,
+    #    `ps auxf` during the call shows only `docker login --username ...
+    #    --password-stdin ...` with no value visible.
+    #
+    #    The remote command is single-quoted ('...') so the runner does not
+    #    expand any variable client-side. The only thing it sees is the
+    #    LITERAL command string; the password arrives strictly via stdin.
+    #
+    #    NOTE: bash xtrace is still off from step 3.5 above; do NOT re-enable
+    #    (T-071 AC-10 / Auditor SEC-LEAK-001).
+    - |
+      printf '%s\n' "$CI_REGISTRY_PASSWORD" \
+        | ssh "$VPS_USER@$VPS_HOST" \
+            "docker login --username '$CI_REGISTRY_USER' --password-stdin '$CI_REGISTRY'"
+
+    # 4b. Pull new images on the VPS now that we are logged in.
+    - |
+      ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR \
+        && export ACMD_API_TAG='$CI_COMMIT_SHORT_SHA' \
+        && export ACMD_WEB_TAG='$CI_COMMIT_SHORT_SHA' \
+        && export ACMD_LANDING_TAG='$CI_COMMIT_SHORT_SHA' \
+        && docker compose -f infra/docker-compose.prod.yml pull"
+
+    # 4c. Apply pending migrations BEFORE swapping containers (T-071 AC-1 /
+    #     QA F-001). Run inside a one-shot api container on vollos-network
+    #     so it picks up DATABASE_URL from the merged env_file. Failure
+    #     here stops the deploy BEFORE `up -d` so the running stack stays
+    #     on the previous schema. tsx is installed into the api runner
+    #     image (apps/api/Dockerfile runner stage `RUN npm install -g tsx`).
+    #     `--no-deps` avoids restarting acmd-api itself; `--rm` cleans up
+    #     the migration container even on failure.
+    - |
+      ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR \
+        && export ACMD_API_TAG='$CI_COMMIT_SHORT_SHA' \
+        && export ACMD_WEB_TAG='$CI_COMMIT_SHORT_SHA' \
+        && export ACMD_LANDING_TAG='$CI_COMMIT_SHORT_SHA' \
+        && docker compose -f infra/docker-compose.prod.yml run --rm --no-deps \
+             --entrypoint sh acmd-api \
+             -c 'cd /app/packages/db && tsx migrations/run-migrations.ts up'"
+
+    # 4d. Bring up the new stack now that migrations succeeded.
+    - |
+      ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR \
+        && export ACMD_API_TAG='$CI_COMMIT_SHORT_SHA' \
+        && export ACMD_WEB_TAG='$CI_COMMIT_SHORT_SHA' \
+        && export ACMD_LANDING_TAG='$CI_COMMIT_SHORT_SHA' \
+        && docker compose -f infra/docker-compose.prod.yml up -d"
+
+    # 5. Smoke test — exits non-zero → rollback in after_script.
+    #    smoke.sh now also runs the SPA fallback check (AC-15), positive
+    #    TLS issuer check (AC-12), and an optional R09 audit_log spot-check
+    #    (AC-14, soft-warn only).
+    - ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR && bash infra/scripts/smoke.sh 120"
+
+    # 6. Record the SHA we just deployed for the next rollback target.
+    #    Persisted to BOTH (a) VPS file `.last_deployed_sha` (read by
+    #    rollback.sh manually + by step 1 of the NEXT pipeline) and
+    #    (b) GitLab dotenv artifact `deploy.env` (read by after_script
+    #    of the CURRENT pipeline if a later step fails — though by step 6
+    #    we have already passed smoke).
+    - ssh "$VPS_USER@$VPS_HOST" "echo '$CI_COMMIT_SHORT_SHA' > $DEPLOY_DIR/.last_deployed_sha"
+    - 'echo "DEPLOYED_SHA=$CI_COMMIT_SHORT_SHA" >> deploy.env'
+    - echo "[deploy] OK — sha=$CI_COMMIT_SHORT_SHA"
+  after_script:
+    # T-071 AC-3 / QA F-002 — auto-rollback. GitLab runs after_script in a
+    # NEW shell process so the script-step PREV_SHA does not survive into
+    # here (this was the original F-002 bug — silent no-op rollback). Two
+    # mitigations both ship in T-071:
+    #   1. rollback.sh now reads `.last_deployed_sha` on the VPS as a
+    #      fallback when its argv is empty (rollback.sh:23-39). This is
+    #      the PRIMARY mechanism that fixes F-002 — auto-rollback works
+    #      even though after_script cannot inherit script-step variables.
+    #   2. The `deploy.env` dotenv artifact carries PREV_SHA + DEPLOYED_SHA
+    #      to DOWNSTREAM jobs (e.g. a separate manual `rollback:` job
+    #      operator may add later). It does NOT inject vars into this same
+    #      job's after_script — that is by GitLab design.
+    # Net behaviour: rollback fires on smoke failure, picks up the last
+    # known-good SHA from `.last_deployed_sha` on the VPS, and exits non-
+    # zero only if BOTH argv is empty AND the VPS file is missing/empty.
+    - |
+      if [ "$CI_JOB_STATUS" = "failed" ]; then
+        echo "[deploy] FAILED — invoking rollback (PREV_SHA=${PREV_SHA:-<empty, falling back to VPS .last_deployed_sha>})"
+        ssh "$VPS_USER@$VPS_HOST" "cd $DEPLOY_DIR && bash infra/scripts/rollback.sh '${PREV_SHA:-}'"
+      fi
+  artifacts:
+    # T-071 AC-3 — dotenv artifact carries PREV_SHA + DEPLOYED_SHA forward
+    # to DOWNSTREAM jobs (operator may add a manual `rollback:production`
+    # job later that needs: deploy:production and reads $PREV_SHA).
+    # `when: always` so the artifact is uploaded even when the job fails
+    # — manual rollback workflow can still find the previous SHA.
+    reports:
+      dotenv: deploy.env
+    when: always
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual              # G2: human approve gate before production
+  needs:
+    - build:api
+    - build:web
+    - build:landing
+  environment:
+    name: production
+    url: https://accommodate.vollos.ai

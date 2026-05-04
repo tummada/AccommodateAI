@@ -1,0 +1,103 @@
+services:
+  postgres:
+    # Pinned to digest (SEC-003 / T-009) — prevents silent supply-chain
+    # rotation of the `17-alpine` floating tag. Rotate digest on scheduled
+    # quarterly base-image review.
+    image: postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6
+    container_name: vollos-core-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Per-schema user passwords consumed by init-db.sh on first init.
+      # Sourced from .env (local) / GitLab CI/CD Variables (CI + VPS).
+      # init-db.sh fails closed if any of these are empty — see scripts/init-db.sh.
+      AUTH_USER_PASSWORD: ${AUTH_USER_PASSWORD}
+      VOLLOS_USER_PASSWORD: ${VOLLOS_USER_PASSWORD}
+      ACMD_USER_PASSWORD: ${ACMD_USER_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # init-db.sh (not .sql) — reads passwords from env, never hardcoded.
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    networks:
+      - internal
+      - vollos-network
+    ports:
+      # Localhost-only bind — not reachable from the internet (UFW
+      # rule relies on this). Remove entirely in hardened production.
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  vollos-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: vollos-core-api
+    env_file: .env
+    # Per-service PORT override — prevents shared `env_file: .env` PORT
+    # value from colliding with auth-service (T-004 env_port_conflict).
+    # Source of truth for service ports lives in compose, not .env.
+    environment:
+      PORT: "3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      # `internal` — private DB bridge (reach postgres by name).
+      # `vollos-network` — shared with Caddy (prod) and future product
+      # repos (acmd, bnfg) so Caddy can reverse_proxy vollos-core-api:3001
+      # via container DNS. Must match auth-service (both on both networks).
+      - internal
+      - vollos-network
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: apps/auth-service/Dockerfile
+    container_name: vollos-core-auth
+    env_file: .env
+    # Per-service PORT override — prevents shared `env_file: .env` PORT
+    # value from colliding with vollos-api (T-004 env_port_conflict).
+    # Source of truth for service ports lives in compose, not .env.
+    environment:
+      PORT: "3004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - vollos-network
+    ports:
+      - "3004:3004"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3004/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  internal:
+    driver: bridge
+  vollos-network:
+    driver: bridge
+    name: vollos-network
+
+volumes:
+  postgres_data:

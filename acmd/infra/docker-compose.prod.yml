@@ -1,0 +1,193 @@
+# T-061 — AccommodateAI production compose
+# ============================================================================
+# Joins vollos-core's `vollos-network` (external: true) so the three services
+# sit behind vollos-core/Caddy reverse-proxy + share Postgres with auth-service.
+#
+# Network topology (per Architecture Rule D2 + T-061 R03 + R05):
+#   Internet
+#     ↓ :80/:443
+#   vollos-core/Caddy (vollos-network)
+#     ├── accommodate.vollos.ai      → acmd-landing:80
+#     ├── accommodate-app.vollos.ai  → acmd-web:80
+#     └── accommodate-api.vollos.ai  → acmd-api:3101
+#
+#   acmd-api also reaches:
+#     - vollos-core-auth:3004  (JWKS endpoint, RS256 verify — B3)
+#     - postgres:5432          (vollos-core managed, acmd schema — C1+C5)
+#
+# DO NOT add Postgres here — vollos-core owns it (Rule A2).
+# DO NOT map any ports outside Caddy — vollos-core/Caddy is the only ingress.
+# DO NOT add `external` network — vollos-network IS our external link.
+# ============================================================================
+
+services:
+  # ----- API ---------------------------------------------------------------
+  acmd-api:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/tummadajingjing/vollos-acmd}/api:${ACMD_API_TAG:-latest}
+    container_name: acmd-api
+    restart: unless-stopped
+    # T-071 AC-2 — env split (Option A chosen):
+    #   .env.production.managed  ← written by GitLab pipeline on every deploy
+    #                              (pipeline-owned: GOOGLE_*, GMAIL_USER,
+    #                              EMAIL_FROM, EMAIL_REPLY_TO + NODE_ENV +
+    #                              ACMD_API_PORT — see .gitlab-ci.yml step 3.5)
+    #   .env.production.local    ← created by operator at first VPS bootstrap
+    #                              (operator-owned: ACMD_ENCRYPTION_KEY,
+    #                              DATABASE_URL, AUTH_RSA_PRIVATE_KEY,
+    #                              TRUSTED_PROXY_IPS, ADDRESS_POSTAL,
+    #                              ACMD_OWNER_EMAIL — NEVER touched by CI)
+    # docker compose merges multiple env_file entries top-down: keys in
+    # later files override earlier files. Operator-managed values therefore
+    # take precedence over pipeline writes for any overlapping key — but
+    # the two files are designed not to overlap. PROD_RUNBOOK §3.4 lists
+    # the partition.
+    env_file:
+      - ../.env.production.managed
+      - ../.env.production.local
+    environment:
+      # NODE_ENV / ACMD_API_PORT / TRUSTED_PROXY_IPS still set here as a
+      # safety floor in case both env_file paths are missing — compose
+      # `environment:` always wins, but we keep `${VAR:-default}` so an
+      # operator override in .env.production.local still reaches the app.
+      NODE_ENV: ${NODE_ENV:-production}
+      ACMD_API_PORT: "3101"
+      # R09 / SEC-001 — see .env.production.local on the VPS for the
+      # operator-supplied subnet (verify with `docker network inspect
+      # vollos-network`). Default keeps the existing 172.18.0.0/16 floor
+      # so first deploy on a stock VPS does not silently disable the
+      # trusted-proxy allowlist if the operator forgets to set it.
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-172.18.0.0/16}
+    networks:
+      - vollos-network
+    healthcheck:
+      # Node 22+ has built-in fetch — no curl/wget needed in alpine image.
+      test:
+        - "CMD-SHELL"
+        - "node -e \"fetch('http://localhost:3101/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # T-071 AC-9 / Auditor DOCKER-002 — CIS 5.x runtime hardening.
+    # api needs a writable /tmp (Node tempfile + tsx cache), but no other
+    # write surface — `read_only: true` + tmpfs covers it. cap_drop: ALL +
+    # no_new_privileges blocks setuid escalation. pids_limit + ulimits
+    # bound a runaway worker.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 4096
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          # T-071 AC-9 — pids cap moved under deploy.resources.limits to avoid
+          # docker compose 5.x's "can't set distinct values on 'pids_limit' and
+          # 'deploy.resources.limits.pids'" error. Same effect: ~200 PIDs.
+          pids: 200
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- Web (Vite SPA served by nginx) ------------------------------------
+  acmd-web:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/tummadajingjing/vollos-acmd}/web:${ACMD_WEB_TAG:-latest}
+    container_name: acmd-web
+    restart: unless-stopped
+    networks:
+      - vollos-network
+    healthcheck:
+      # T-071 AC-8 — nginx now listens on 8080 (non-privileged, USER nginx).
+      # Caddy upstream in vollos-core/infra/Caddyfile MUST be retargeted to
+      # `acmd-web:8080` (cross-repo handshake — see PROD_RUNBOOK §1).
+      # nginx alpine has wget built-in.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # T-071 AC-9 / Auditor DOCKER-002 — CIS 5.x runtime hardening for nginx.
+    # nginx writes pid + cache files at runtime → tmpfs /var/cache/nginx +
+    # /var/run + /tmp. cap_drop: ALL + read_only root FS. No CAP_NET_BIND
+    # needed because we listen on 8080 (uid 101 binds non-privileged port).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 4096
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+          pids: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # ----- Landing -----------------------------------------------------------
+  acmd-landing:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/tummadajingjing/vollos-acmd}/landing:${ACMD_LANDING_TAG:-latest}
+    container_name: acmd-landing
+    restart: unless-stopped
+    networks:
+      - vollos-network
+    healthcheck:
+      # T-071 AC-8 — nginx listens on 8080 (same rationale as acmd-web).
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # T-071 AC-9 / Auditor DOCKER-002 — CIS 5.x runtime hardening.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 4096
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+          pids: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+networks:
+  # External — owned by vollos-core (Architecture Rule D2). vollos-core
+  # docker-compose.yml creates `vollos-network` with `driver: bridge`. acmd
+  # joins it so Caddy in vollos-core can reach `acmd-api:3101`, etc.
+  vollos-network:
+    external: true

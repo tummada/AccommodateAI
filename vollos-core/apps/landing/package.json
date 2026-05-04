@@ -1,0 +1,9 @@
+{
+  "name": "@vollos/landing",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -l 3000",
+    "build": "echo 'Static site — no build step required'"
+  }
+}

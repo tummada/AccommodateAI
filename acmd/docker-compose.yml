@@ -1,0 +1,41 @@
+services:
+  acmd-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: acmd-api
+    env_file: .env
+    networks:
+      - vollos-network
+    ports:
+      - "3101:3101"
+
+  acmd-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${ACMD_GOOGLE_CLIENT_ID}
+        VITE_MODE: development
+    container_name: acmd-web
+    env_file: .env
+    networks:
+      - internal
+    ports:
+      - "3102:80"
+
+  acmd-landing:
+    build: ./apps/landing
+    container_name: acmd-landing
+    networks:
+      - internal
+    ports:
+      - "3103:80"
+
+networks:
+  internal:
+    driver: bridge
+  vollos-network:
+    external: true   # join network ที่ vollos-core สร้างไว้
+
+# หมายเหตุ: ไม่มี postgres ที่นี่ — ใช้ของ vollos-core ผ่าน vollos-network

@@ -1,0 +1,113 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  NODE_VERSION: "22"
+
+test:
+  stage: test
+  image: node:22-alpine
+  before_script:
+    - npm install -g pnpm@9
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm typecheck
+    - pnpm lint
+    - pnpm test
+  only:
+    - main
+    - merge_requests
+
+build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Build api from monorepo root — Dockerfile references apps/api/ and packages/db/
+    - docker build -t $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHA -f ./apps/api/Dockerfile .
+    - docker push $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHA
+    # Build auth-service from monorepo root — Dockerfile references apps/auth-service/, packages/auth/, packages/auth-db/
+    - docker build -t $CI_REGISTRY_IMAGE/auth-service:$CI_COMMIT_SHA -f ./apps/auth-service/Dockerfile .
+    - docker push $CI_REGISTRY_IMAGE/auth-service:$CI_COMMIT_SHA
+  only:
+    - main
+  needs: [test]
+
+deploy:
+  stage: deploy
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache openssh-client curl
+    - eval $(ssh-agent -s)
+    - echo "$VPS_SSH_KEY" | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$VPS_SSH_HOST_KEY" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+  script:
+    # Record current VPS HEAD as LAST_GOOD rollback target (captured BEFORE git pull)
+    - LAST_GOOD=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts $VPS_USER@$VPS_HOST "cd ~/vollos-core && git rev-parse HEAD")
+    - echo "LAST_GOOD=$LAST_GOOD"
+    # Guard: git SHA-1 must be 40 hex chars. If empty/malformed (SSH fail or VPS not a git repo) -> abort before git pull
+    - |
+      if [ -z "$LAST_GOOD" ] || [ ${#LAST_GOOD} -ne 40 ] || ! echo "$LAST_GOOD" | grep -qE '^[0-9a-f]{40}$'; then
+        echo "FATAL LAST_GOOD invalid (len=${#LAST_GOOD}, non-hex or malformed) — abort deploy before git pull"
+        exit 1
+      fi
+    - ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts $VPS_USER@$VPS_HOST "cd ~/vollos-core && git pull && docker compose up -d --build"
+    # T-096 — Post-deploy graceful Caddy reload. If only the Caddyfile
+    # changed (no compose / image change), `docker compose up -d --build`
+    # above is a no-op for the caddy container, so we trigger a graceful
+    # reload via the Unix admin socket (admin unix//config/admin.sock —
+    # see infra/caddy/Caddyfile global block). Conditional on the file
+    # actually changing in this commit so we don't reload on every deploy.
+    - |
+      if git diff HEAD~1 HEAD --name-only | grep -qE '^infra/caddy/Caddyfile$'; then
+        echo "Caddyfile changed in this commit — triggering graceful reload"
+        ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts $VPS_USER@$VPS_HOST \
+          "cd ~/vollos-core && docker exec vollos-core-caddy caddy reload --config /etc/caddy/Caddyfile --address unix//config/admin.sock"
+      else
+        echo "Caddyfile unchanged in this commit — skipping reload"
+      fi
+    # Post-deploy smoke test — 15s warmup + 5 attempts x 15s; both endpoints must return 200
+    # Rationale: auth-service cold start (JWKS+RSA+pg pool) can exceed 36s — see T-076
+    - |
+      smoke_check() {
+        api=$(curl -sS --max-time 10 --connect-timeout 5 -o /dev/null -w "%{http_code}" https://vollos.ai/api/v1/health || echo "000")
+        auth=$(curl -sS --max-time 10 --connect-timeout 5 -o /dev/null -w "%{http_code}" https://auth.vollos.ai/health || echo "000")
+        [ "$api" = "200" ] && [ "$auth" = "200" ]
+      }
+      tg_alert() {
+        [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ] && { echo "Telegram vars unset — skipping alert"; return 0; }
+        curl -sS --max-time 10 --connect-timeout 5 -o /dev/null \
+          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+          --data-urlencode "text=$1" || echo "Telegram send failed"
+      }
+      echo "Smoke warmup sleep 15s for container boot..."
+      sleep 15
+      for i in 1 2 3 4 5; do
+        if smoke_check; then
+          echo "Smoke PASS attempt=$i api=$api auth=$auth"; exit 0
+        fi
+        echo "Smoke retry attempt=$i api=$api auth=$auth"
+        [ $i -lt 5 ] && sleep 15
+      done
+      echo "Smoke FAILED after 5 attempts — initiating auto-rollback to $LAST_GOOD"
+      ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts $VPS_USER@$VPS_HOST "cd ~/vollos-core && git reset --hard $LAST_GOOD && docker compose up -d --build"
+      sleep 10
+      if smoke_check; then
+        MSG="[VOLLOS CI] ROLLBACK OK — deploy $CI_COMMIT_SHORT_SHA failed smoke, rolled back to $LAST_GOOD. Pipeline: $CI_PIPELINE_URL"
+        echo "$MSG"; tg_alert "$MSG"; exit 1
+      else
+        MSG="[VOLLOS CI] DOUBLE FAILURE — deploy $CI_COMMIT_SHORT_SHA failed smoke AND rollback to $LAST_GOOD also failed. MANUAL attention required. Pipeline: $CI_PIPELINE_URL"
+        echo "$MSG"; tg_alert "$MSG"; exit 1
+      fi
+  only:
+    - main
+  needs: [build]
+  when: on_success
+  environment: production
+  resource_group: production_deploy

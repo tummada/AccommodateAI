@@ -1,0 +1,165 @@
+# =============================================================================
+# vollos-core — production overlay (apply on VPS)
+# -----------------------------------------------------------------------------
+# Usage (on VPS):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Purpose:
+#   Strip all host-port publication from vollos-api (3001) and auth-service
+#   (3004). In production, Caddy is the ONLY container that binds to host
+#   interfaces (ports 80 + 443). Both api services are reached over the
+#   vollos-network internal bridge via container DNS:
+#       Caddy  ─reverse_proxy→ vollos-core-api:3001   (intra-network)
+#       Caddy  ─reverse_proxy→ vollos-core-auth:3004  (intra-network)
+#
+#   Publishing 3001/3004 on the host interface (as the default
+#   docker-compose.yml does for local curl tests) would bypass Caddy's TLS
+#   termination + Cloudflare Real-IP trust layer. UFW on the VPS blocks the
+#   ports externally, but defense-in-depth says: don't bind them at all.
+#
+#   Postgres also loses its host port here — CLI access (psql / pg_dump)
+#   must be done via SSH tunnel: `ssh -L 5432:localhost:5432 ipon@<vps>`
+#   then connect to localhost:5432.
+#
+#   auth-service additionally joins the vollos-network so future product
+#   repos (acmd, bnfg) can mint JWTs via container DNS without the host.
+#
+# Caddy (this overlay) is the ONLY container that binds to host ports
+# (80, 443, 443/udp for HTTP/3). TLS termination uses the Cloudflare
+# Origin Certificate (bind-mounted from infra/caddy/certs/ — never
+# committed, see .gitignore *.pem + *.key + infra/caddy/certs/) because
+# Cloudflare proxy (Full Strict) is ON for all three public subdomains,
+# which intercepts ACME HTTP-01 / TLS-ALPN-01 challenges. Cert is valid
+# until 2041-03-22 (CF Origin CA).
+#
+# Addresses Auditor finding F-1 (T-002/review-auditor.md:L86-94) +
+# RS-013 T-007 TLS-mismatch blocker (Option A — reuse CF Origin Cert).
+# Reference: CLAUDE.md §D Docker + SKILL.md §UFW-Docker Bypass.
+# =============================================================================
+services:
+  postgres:
+    # Replace (not append to) the parent `ports` list. Docker Compose v2
+    # merges list fields by appending; the `!reset` YAML tag is the
+    # documented way to clear the inherited list entirely.
+    # See https://docs.docker.com/compose/multiple-compose-files/merge/
+    ports: !reset []
+    # SEC-004 (T-009) — VPS = 2 CPU / 8 GB. Postgres gets the largest
+    # slice because it's the stateful workhorse; tune up later if
+    # pg_stat_activity shows contention.
+    mem_limit: 1g
+    cpus: 1.0
+
+  vollos-api:
+    # No host port in prod — reachable only via Docker internal network.
+    # Joins vollos-network in prod so Caddy (on vollos-network) can
+    # reverse_proxy vollos-core-api:3001 via container DNS once a lead-
+    # capture route is added to the Caddyfile. The default compose keeps
+    # vollos-api on `internal` only — T-008 adds vollos-network to the
+    # base compose so both dev + prod share the same network topology.
+    ports: !reset []
+    # SEC-004 (T-009) — Hono API, low footprint. Bumped from 0.3 CPU
+    # headroom in case a cold-start burst coincides with health probes.
+    mem_limit: 512m
+    cpus: 0.5
+
+  auth-service:
+    # No host port in prod — Caddy reaches it via vollos-network
+    # (auth-service is already on `internal + vollos-network` in the
+    # default compose, so Caddyfile:L102 `reverse_proxy vollos-core-auth:3004`
+    # resolves via shared vollos-network DNS).
+    ports: !reset []
+    # SEC-004 (T-009) — JWT issuer service. Equivalent sizing to
+    # vollos-api (both Node.js / Hono, similar runtime profile).
+    mem_limit: 512m
+    cpus: 0.5
+
+  # ---------------------------------------------------------------------------
+  # caddy — single edge entry point (80 + 443 + 443/udp). TLS terminates
+  # here using the Cloudflare Origin Certificate (bind-mounted read-only
+  # from infra/caddy/certs/). Cloudflare proxy in front provides
+  # DDoS/WAF/CDN. Joins both vollos-network (reach auth-service +
+  # vollos-api by name) and internal (defense-in-depth reach for
+  # postgres if ever needed; kept internal-only in practice because
+  # Caddy never proxies to db).
+  # ---------------------------------------------------------------------------
+  caddy:
+    # Pinned to digest (SEC-003 / T-009) — prevents silent supply-chain
+    # rotation of the `2-alpine` floating tag. Rotate digest on scheduled
+    # quarterly base-image review.
+    image: caddy:2-alpine@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
+    container_name: vollos-core-caddy
+    restart: unless-stopped
+    # --- SEC-001 hardening (T-009) -----------------------------------------
+    # Run as non-root UID 1000:1000 — upstream caddy:2-alpine defaults to
+    # root (uid=0). NET_BIND_SERVICE is the only capability required for a
+    # non-root process to bind :80 + :443. Everything else is dropped.
+    # read_only rootfs forces writes into named volumes (/data, /config)
+    # or tmpfs (/tmp). no-new-privileges blocks setuid escalation.
+    # Cert files on VPS must be chown 1000:1000 (or chmod 644) to stay
+    # readable — handled in T-007 2B-2 deploy runbook.
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    volumes:
+      # Caddyfile + certs mounted via PARENT DIRECTORY (T-096) — was a
+      # single-file bind mount (./infra/Caddyfile:/etc/caddy/Caddyfile:ro)
+      # which pinned the host inode at container start, so a host file
+      # replacement (e.g. `git reset --hard` swapping the inode) did NOT
+      # propagate into the container. Root cause of T-094/T-095: VPS had
+      # the new 266-line Caddyfile on disk but Caddy kept reading the
+      # orphan 189-line inode from container start. Directory bind mount
+      # follows the host inode every read.
+      # Container reads /etc/caddy/Caddyfile + /etc/caddy/certs/*.pem|key
+      # inside this directory. Cert files are gitignored (*.pem + *.key
+      # + infra/caddy/certs/) and synced onto VPS out-of-band — directory
+      # holds no committed secret material.
+      - ./infra/caddy:/etc/caddy:ro
+      # SEC-002 (T-009) — host bind-mount so fail2ban caddy-auth jail on
+      # the VPS can read Caddy's access log. Caddyfile:L40 already writes
+      # to /var/log/caddy/access.log; this mount surfaces it to the host.
+      - ./logs/caddy:/var/log/caddy
+      # Named volumes for Caddy state — preserved across container
+      # restart/rebuild. `/config` autosave required by Caddy even when
+      # ACME is disabled. Named volumes remain writable despite
+      # `read_only: true` on rootfs.
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    networks:
+      - vollos-network
+      - internal
+    depends_on:
+      vollos-api:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      # Caddy's admin API is on a Unix socket (T-096:
+      # admin unix//config/admin.sock — never reachable via TCP), so we
+      # cannot probe :2019. A TCP-level check on port 443 verifies the
+      # TLS listener is up — sufficient for depends_on gating because
+      # Caddy binds :443 only after Caddyfile parse + cert load succeed.
+      # Uses busybox `nc` which ships with caddy:alpine.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # SEC-004 (T-009) — resource limits. VPS = 2 CPU / 8 GB. Caddy is a
+    # lightweight edge proxy; 256 MB + 0.3 CPU is comfortably above idle.
+    mem_limit: 256m
+    cpus: 0.3
+
+volumes:
+  caddy_data:
+  caddy_config:

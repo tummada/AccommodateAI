@@ -1,0 +1,282 @@
+# =========================================================================
+# vollos-core — production Caddyfile (tracked in git, applied on VPS)
+# =========================================================================
+# Scope  : reverse-proxy for vollos.ai + www.vollos.ai + auth.vollos.ai.
+#          Terminates TLS using the Cloudflare Origin Certificate that sits
+#          behind Cloudflare's Full (Strict) proxy. Origin cert is valid
+#          until 2041-03-22 (15-year CF Origin CA) — no ACME auto-HTTPS
+#          is used on this edge because the Cloudflare proxy intercepts
+#          HTTP-01/TLS-ALPN-01 challenges before they reach the origin.
+# Certs  : bind-mounted from infra/caddy/certs/cloudflare.pem + cloudflare.key
+#          into the caddy container at /etc/caddy/certs/ (see Caddy
+#          service in docker-compose.prod.yml). Cert files are gitignored
+#          (*.pem / *.key) and synced onto the VPS out-of-band.
+# Mount  : -v $PWD/infra/caddy:/etc/caddy:ro    (T-096 — directory bind
+#          mount; was single-file ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+#          which pinned host inode at container start and broke
+#          git reset --hard pickup — see T-094/T-095 incident).
+# Volumes: caddy_data:/data  +  caddy_config:/config  (named volumes —
+#          kept so autosave + admin state survive container restart even
+#          though ACME issuance is not used here).
+# Apply  : caddy validate --config /etc/caddy/Caddyfile
+#          docker exec vollos-core-caddy caddy reload \
+#            --config /etc/caddy/Caddyfile \
+#            --address unix//config/admin.sock
+# -------------------------------------------------------------------------
+{
+	# Admin API on Unix socket inside container (never reachable from
+	# the network — defense in depth: not even localhost TCP). Was
+	# `admin off` previously, but that blocks `caddy reload` and forces
+	# container recreate to apply Caddyfile changes — root cause of the
+	# T-094/T-095 incident. The Unix socket path lives on the
+	# caddy_config named volume (writable even though rootfs is
+	# read_only) and is owned by uid 1000 (Caddy's runtime user). No
+	# `email` directive is required because ACME is disabled; TLS uses
+	# static cert files. Reload via:
+	#   docker exec vollos-core-caddy caddy reload \
+	#     --config /etc/caddy/Caddyfile \
+	#     --address unix//config/admin.sock
+	admin unix//config/admin.sock
+	# Cloudflare Real-IP trust — fetched from
+	# https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6
+	# (snapshot 2026-04-18). Refresh this list quarterly — CF publishes
+	# changes at https://www.cloudflare.com/ips/.
+	servers {
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP X-Forwarded-For
+	}
+
+	# Centralised access log (JSON) — fail2ban caddy-auth jail reads
+	# /var/log/caddy/access.log on the host. Volume mount required:
+	# ./logs/caddy:/var/log/caddy
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50mb
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+	}
+}
+
+# -------------------------------------------------------------------------
+# Reusable security-header snippet — applied to every public site.
+# HSTS: 2-year max-age + includeSubDomains + preload (safe only after
+# cert is stable; remove preload until submitted to hstspreload.org).
+#
+# Content-Security-Policy (CSP) directives are derived from the landing
+# page's actual 3rd-party origins (apps/landing/index.html):
+#   script-src       — inline handlers (L402), Cloudflare Turnstile (L16),
+#                      Google Identity Services (L17), Cloudflare Web
+#                      Analytics beacon (auto-injected by CF — loads
+#                      https://static.cloudflareinsights.com/beacon.min.js).
+#                      'unsafe-inline' is required until the landing inline
+#                      <script> is moved to an external file with a nonce.
+#                      Note: beacon POSTs telemetry to cloudflareinsights.com
+#                      which is blocked by default-src 'self' in connect-src;
+#                      we intentionally do NOT relax connect-src here (beacon
+#                      failure is silent — only analytics are lost).
+#   style-src        — inline <style> + style="" attributes throughout the
+#                      HTML + Google Fonts CSS (L13-15) + Google Identity
+#                      Services stylesheet (accounts.google.com/gsi/style,
+#                      loaded by the GSI script at runtime). 'unsafe-inline'
+#                      is unavoidable for the current markup.
+#   style-src-elem   — browsers that support it use this directive for
+#                      <link rel="stylesheet"> elements (falls back to
+#                      style-src otherwise). We set it explicitly so the
+#                      GSI-injected <link href="https://accounts.google.com
+#                      /gsi/style"> is not blocked (fixes the RS-013
+#                      Phase 2C smoke-test CSP violation on style-src-elem).
+#   font-src         — Google Fonts (fonts.gstatic.com, L14).
+#   img-src          — 'self' + data: URIs (L41 SVG noise + SVG favicons) +
+#                      https: catch-all for any future CDN asset.
+#   frame-src        — Turnstile widget iframe + Google GIS iframe.
+#   connect-src      — same-origin API calls (/api/v1/csrf, /api/v1/leads,
+#                      /api/v1/leads/google) + auth.vollos.ai cross-origin
+#                      calls from product repos that embed the landing.
+#   object-src 'none' / base-uri 'self' / form-action 'self' mailto: —
+#                      restrict legacy plugin surfaces + <base> hijacks and
+#                      limit form POSTs to same-origin + mailto contacts.
+#   frame-ancestors 'none' — pair with X-Frame-Options DENY.
+#
+# Cross-Origin-Opener-Policy (COOP):
+#   `same-origin-allow-popups` lets the Google One Tap / GIS popup send
+#   window.postMessage back to vollos.ai (the opener) while still isolating
+#   the top-level browsing context from any other cross-origin opener.
+#   Trade-off vs `same-origin`: slightly looser — popups WE OPEN can
+#   postMessage to us (required for Google OAuth popup callback).
+#   Trade-off vs `unsafe-none`: still blocks unrelated cross-origin
+#   opener/parent windows from reaching into vollos.ai.
+#   This is the standard value for sites that use Google Sign-In popups
+#   (see https://developers.google.com/identity/gsi/web/guides/get-google-
+#   api-clientid#cross_origin_opener_policy).
+#   Without it, browsers print
+#   "Cross-Origin-Opener-Policy policy would block the window.postMessage
+#   call" to console and the One Tap callback silently drops — observed in
+#   RS-013 Phase 2C Track 2 owner smoke test.
+# -------------------------------------------------------------------------
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		Cross-Origin-Opener-Policy "same-origin-allow-popups"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://accounts.google.com https://www.gstatic.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; frame-src https://challenges.cloudflare.com https://accounts.google.com; connect-src 'self' https://auth.vollos.ai https://accommodate-api.vollos.ai https://challenges.cloudflare.com https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self' mailto:; frame-ancestors 'none'"
+		# Remove server fingerprint
+		-Server
+	}
+}
+
+# =========================================================================
+# auth.vollos.ai → auth-service (port 3004)
+# Terminal for Google One-Tap sign-in + refresh token rotation +
+# JWKS publication. Upstream is the container named `vollos-core-auth`
+# in docker-compose.yml (service: auth-service, port 3004).
+# =========================================================================
+auth.vollos.ai {
+	# Cloudflare Origin Certificate (Full Strict mode). Files are bind-
+	# mounted read-only from infra/caddy/certs/ on the VPS via the parent
+	# infra/caddy:/etc/caddy directory bind (see docker-compose.prod.yml).
+	tls /etc/caddy/certs/cloudflare.pem /etc/caddy/certs/cloudflare.key
+
+	import security_headers
+	encode gzip zstd
+
+	reverse_proxy vollos-core-auth:3004 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 5s
+		# Preserve the real client IP from Cloudflare so the auth-service
+		# rate limiter and audit log see the end-user, not the CF edge.
+		header_up X-Real-IP {client_ip}
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# =========================================================================
+# vollos.ai → landing page (static HTML under apps/landing/) + lead-capture
+# API proxy. The landing app is static (apps/landing/index.html) bind-mounted
+# into the caddy container at /srv/landing on VPS. Lead-capture endpoints
+# (/api/v1/csrf, /api/v1/leads, /api/v1/leads/google) reverse-proxy to the
+# vollos-core-api container on the shared vollos-network.
+#
+# Route order matters in Caddy — `handle /api/v1/*` MUST come BEFORE the
+# catch-all `handle` block. Caddy evaluates handle blocks in the order they
+# match; an earlier catch-all would swallow the API paths.
+# Fix: RS-013 F-T011-1 (T-011 flagged /api/v1/csrf returning landing HTML).
+# =========================================================================
+vollos.ai {
+	# Cloudflare Origin Certificate (Full Strict mode). Files are bind-
+	# mounted read-only from infra/caddy/certs/ on the VPS via the parent
+	# infra/caddy:/etc/caddy directory bind (see docker-compose.prod.yml).
+	tls /etc/caddy/certs/cloudflare.pem /etc/caddy/certs/cloudflare.key
+
+	import security_headers
+	encode gzip zstd
+
+	# Lead-capture API → vollos-core-api:3001 (reached via vollos-network DNS).
+	# `handle` preserves the full request path so the Hono app sees /api/v1/*
+	# exactly as the browser sent it. {client_ip} resolves to the real end-
+	# user IP because Cloudflare ranges are declared in global trusted_proxies
+	# (L31-34) — no need to read CF-Connecting-IP header manually.
+	handle /api/v1/* {
+		reverse_proxy vollos-core-api:3001 {
+			header_up X-Real-IP {client_ip}
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+
+	# Catch-all — static landing page. SPA-style fallback to /index.html so
+	# client-side routes (if ever added) resolve.
+	handle {
+		root * /srv/landing
+		file_server
+		try_files {path} {path}/ /index.html
+	}
+}
+
+# =========================================================================
+# www.vollos.ai → 301 redirect to apex (canonical)
+# =========================================================================
+www.vollos.ai {
+	# Cloudflare Origin Certificate (Full Strict mode). Files are bind-
+	# mounted read-only from infra/caddy/certs/ on the VPS via the parent
+	# infra/caddy:/etc/caddy directory bind (see docker-compose.prod.yml).
+	tls /etc/caddy/certs/cloudflare.pem /etc/caddy/certs/cloudflare.key
+
+	import security_headers
+	redir https://vollos.ai{uri} permanent
+}
+
+# =========================================================================
+# T-085 — accommodate.vollos.ai subtree (acmd product repo)
+# -------------------------------------------------------------------------
+# Cross-repo handshake: vollos-core terminates TLS at the Caddy edge for
+# all three accommodate-* subdomains. Upstreams are container names from
+# the acmd repo joined onto vollos-network (external) per CLAUDE.md A1+D2:
+#   - acmd-landing:8080  static SPA (marketing landing — nginx-unprivileged)
+#   - acmd-web:8080      React SPA, authenticated (nginx-unprivileged)
+#   - acmd-api:3101      Hono API (HS Code/customs/FTA logic)
+#
+# TLS uses the EXISTING Cloudflare Origin Certificate (cloudflare.pem)
+# which covers *.vollos.ai + vollos.ai. The flat 1-level subdomain
+# pattern (accommodate-app / accommodate-api) is each only one level
+# deep so *.vollos.ai matches — no second cert needed.
+#
+# Why flat instead of 2-level (api.accommodate.vollos.ai):
+#   *.vollos.ai does NOT cover 2-level subdomains like
+#   api.accommodate.vollos.ai. Cloudflare's free Universal SSL only
+#   issues 1-level wildcards; covering 2-level requires the paid
+#   Advanced Certificate Manager add-on. Owner + mentor3 D12 chose the
+#   flat pattern (2026-04-28) to avoid the ACM paywall.
+#
+# acmd containers are owned by the acmd repo's docker-compose.yml. They
+# may not be running on the VPS at deploy time — that's expected and
+# acceptable. Caddy will return 502 for the upstream lookup but TLS
+# termination + cert serving is verifiable independently (smoke test
+# with openssl s_client against the SNI confirms the cert is served
+# even when the backend is down).
+# =========================================================================
+
+# accommodate.vollos.ai → acmd-landing:8080 (static SPA, nginx-unprivileged on port 8080)
+accommodate.vollos.ai {
+	tls /etc/caddy/certs/cloudflare.pem /etc/caddy/certs/cloudflare.key
+
+	import security_headers
+	encode gzip zstd
+
+	reverse_proxy acmd-landing:8080 {
+		# Preserve real client IP from the Cloudflare edge (CF ranges are
+		# trusted in the global servers{} block at the top of this file).
+		header_up X-Real-IP {client_ip}
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# accommodate-app.vollos.ai → acmd-web:8080 (React SPA, nginx-unprivileged on port 8080)
+accommodate-app.vollos.ai {
+	tls /etc/caddy/certs/cloudflare.pem /etc/caddy/certs/cloudflare.key
+
+	import security_headers
+	encode gzip zstd
+
+	reverse_proxy acmd-web:8080 {
+		header_up X-Real-IP {client_ip}
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# accommodate-api.vollos.ai → acmd-api:3101 (Hono customs API)
+accommodate-api.vollos.ai {
+	tls /etc/caddy/certs/cloudflare.pem /etc/caddy/certs/cloudflare.key
+
+	import security_headers
+	encode gzip zstd
+
+	reverse_proxy acmd-api:3101 {
+		header_up X-Real-IP {client_ip}
+		header_up X-Forwarded-For {client_ip}
+	}
+}
