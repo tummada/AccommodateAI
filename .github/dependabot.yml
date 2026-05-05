@@ -1,0 +1,42 @@
+# Dependabot — auto-create PRs for dependency updates
+# Docs: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # GitHub Actions workflow updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # vollos-core (pnpm monorepo)
+  - package-ecosystem: "npm"
+    directory: "/vollos-core"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+      production-dependencies:
+        dependency-type: "production"
+
+  # acmd (AccommodateAI product)
+  - package-ecosystem: "npm"
+    directory: "/acmd"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+      production-dependencies:
+        dependency-type: "production"
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
