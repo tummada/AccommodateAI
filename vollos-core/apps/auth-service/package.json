@@ -18,7 +18,7 @@
     "@vollos/auth": "workspace:*",
     "@vollos/auth-db": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.7.4",
+    "hono": "^4.12.16",
     "hono-rate-limiter": "^0.5.3",
     "jose": "^5.10.0"
   },

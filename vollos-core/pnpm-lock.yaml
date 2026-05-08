@@ -19,7 +19,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.11
-        version: 1.19.14(hono@4.12.14)
+        version: 1.19.14(hono@4.12.16)
       '@vollos/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -33,11 +33,11 @@ importers:
         specifier: ^10.6.2
         version: 10.6.2
       hono:
-        specifier: ^4.7.4
-        version: 4.12.14
+        specifier: ^4.12.16
+        version: 4.12.16
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.12.14)
+        version: 0.5.3(hono@4.12.16)
       nodemailer:
         specifier: ^8.0.4
         version: 8.0.5
@@ -71,7 +71,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.11
-        version: 1.19.14(hono@4.12.14)
+        version: 1.19.14(hono@4.12.16)
       '@vollos/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -82,11 +82,11 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(gel@2.2.0)(postgres@3.4.9)
       hono:
-        specifier: ^4.7.4
-        version: 4.12.14
+        specifier: ^4.12.16
+        version: 4.12.16
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.12.14)
+        version: 0.5.3(hono@4.12.16)
       jose:
         specifier: ^5.10.0
         version: 5.10.0
@@ -112,11 +112,11 @@ importers:
         specifier: ^10.6.2
         version: 10.6.2
       hono:
-        specifier: ^4.7.4
-        version: 4.12.14
+        specifier: ^4.12.16
+        version: 4.12.16
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.12.14)
+        version: 0.5.3(hono@4.12.16)
       jose:
         specifier: ^5.10.0
         version: 5.10.0
@@ -1106,8 +1106,8 @@ packages:
       unstorage:
         optional: true
 
-  hono@4.12.14:
-    resolution: {integrity: sha512-am5zfg3yu6sqn5yjKBNqhnTX7Cv+m00ox+7jbaKkrLMRJ4rAdldd1xPd/JzbBWspqaQv6RSTrgFN95EsfhC+7w==}
+  hono@4.12.16:
+    resolution: {integrity: sha512-jN0ZewiNAWSe5khM3EyCmBb250+b40wWbwNILNfEvq84VREWwOIkuUsFONk/3i3nqkz7Oe1PcpM2mwQEK2L9Kg==}
     engines: {node: '>=16.9.0'}
 
   htmlparser2@10.1.0:
@@ -1695,9 +1695,9 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
-  '@hono/node-server@1.19.14(hono@4.12.14)':
+  '@hono/node-server@1.19.14(hono@4.12.16)':
     dependencies:
-      hono: 4.12.14
+      hono: 4.12.16
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
@@ -2076,11 +2076,11 @@ snapshots:
 
   google-logging-utils@1.1.3: {}
 
-  hono-rate-limiter@0.5.3(hono@4.12.14):
+  hono-rate-limiter@0.5.3(hono@4.12.16):
     dependencies:
-      hono: 4.12.14
+      hono: 4.12.16
 
-  hono@4.12.14: {}
+  hono@4.12.16: {}
 
   htmlparser2@10.1.0:
     dependencies:
