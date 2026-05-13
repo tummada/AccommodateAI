@@ -1,30 +1,42 @@
-# VOLLOS Platform
+# AccommodateAI
 
-Two AI SaaS products deployed to production — built solo using AI-assisted development with a shared multi-tenant core. Each product solves a real compliance problem in a specific industry.
+ADA / PWFA HR Compliance SaaS — multi-tenant **Interactive Process** automation with AI-assisted case analysis, audit-ready timeline, and legally compliant letter generation.
 
-> **Stack:** Node.js 22 · TypeScript · PostgreSQL · Docker · Caddy · GitLab CI/CD
+> **The problem:** 43% of US HR teams still manage workplace accommodation requests via spreadsheets and email — leaving no audit trail. Average lawsuit settlement when the process fails: **$160K**.
 
-## Products Built
-
-### 🛡️ CustomsGuard AI
-Thai customs clerks spend 3-5 hours per declaration manually looking up HS Codes. One wrong classification = $3,000+ penalty.
-
-This product automates HS Code classification, duty calculation, and declaration form generation using AI — cutting prep time by ~70%.
-
-### 🏢 AccommodateAI
-43% of HR teams still manage workplace accommodation requests (ADA/PWFA) via spreadsheets and email — leaving no audit trail. Average lawsuit settlement when process fails: **$160K**.
-
-This product automates the full Interactive Process — intake, documentation, deadline tracking, and legally compliant letter generation.
-
-### Screenshots
-
-| Login | Dashboard |
-|-------|-----------|
-| ![Login](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+> **What this builds:** intake → AI analysis → documentation → deadline tracking → letters (PDF + email + print) — all in one tenant-isolated workflow.
 
 ---
 
-## Architecture
+## 🎥 Walkthrough Video
+
+<!-- VIDEO_PLACEHOLDER: drag final.mp4 into the GitHub Web README editor, then commit. -->
+*(2:17 product walkthrough — coming shortly)*
+
+---
+
+## 📸 Screenshots
+
+| AI Analysis & Suggestions (HERO) | EEOC 4-Factor Denial Progress |
+|----------------------------------|-------------------------------|
+| ![AI Analysis](docs/screenshots/17-ai-analysis.png) | ![Deny Tab](docs/screenshots/23-deny-tab.png) |
+| Vertex AI (Gemini) + Claude orchestration · Illinois HB 3773 disclosure · consent-gated AI | Step-by-step EEOC denial framework with legal warning UI |
+
+| PWFA Predictable Assessment | Dashboard + KPIs |
+|------------------------------|------------------|
+| ![PWFA Fast Track](docs/screenshots/15-pwfa-fast-track.png) | ![Dashboard](docs/screenshots/07-dashboard.png) |
+| PWFA Section 1003(4) fast-track · leave-forcing protection | Case load, alerts, and deadline distribution at a glance |
+
+| Letter Workflow |
+|-----------------|
+| ![Letters](docs/screenshots/16-letters.png) |
+| PDF + email + print, with version-history sidebar |
+
+---
+
+## 🏗️ Architecture
+
+Built on a shared multi-tenant core with a product-specific application layer.
 
 ```
 vollos-platform/
@@ -40,17 +52,17 @@ vollos-platform/
 │
 └── acmd/                 # AccommodateAI product
     ├── apps/
-    │   ├── api/          # Product API
+    │   ├── api/          # Product API (Hono)
     │   ├── web/          # React dashboard
     │   └── landing/      # Product landing page
     └── packages/
         ├── db/           # Product DB schema
-        └── ai/           # AI pipeline
+        └── ai/           # AI pipeline (Vertex + Claude)
 ```
 
 ---
 
-## Tech Stack
+## ⚙️ Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -58,35 +70,40 @@ vollos-platform/
 | API Framework | Hono.js |
 | Frontend | React 19 + Vite |
 | Database | PostgreSQL 16 + Drizzle ORM |
+| AI | Vertex AI (Gemini) + Anthropic Claude |
+| PDF | PDFKit |
 | Auth | JWT (RSA) + Google One Tap |
 | Infrastructure | Docker Compose + Caddy (auto-HTTPS) |
 | Monorepo | pnpm workspaces + Turborepo |
-| CI/CD | GitLab CI → VPS auto-deploy |
+| CI/CD | GitLab CI |
 
 ---
 
-## Key Features
+## ✨ Key Features
 
-- **Multi-tenant architecture** — strict data isolation between customers at the database level
-- **Google One Tap** sign-in + manual email registration
-- **Rate limiting** on all auth endpoints
-- **CCPA/GDPR compliant** — right-to-delete, IP/UA anonymization
-- **Production hardened** — Cloudflare + Caddy reverse proxy, fail2ban, UFW firewall
-- **Monorepo** — shared packages across products, single CI/CD pipeline
+- **Multi-tenant data isolation** — row-level isolation per HR tenant
+- **AI Interactive Process** — Vertex AI (Gemini) + Claude orchestration for case analysis & suggestions
+- **EEOC 4-Factor denial framework** — step-by-step legal compliance UI
+- **PWFA Section 1003(4) fast-track** — predictable assessments + leave-forcing protection
+- **Illinois HB 3773 disclosure** — consent-gated AI for IL employers
+- **Letter workflow** — PDF generation, email delivery, version-history sidebar
+- **Audit-ready timeline** — every case action timestamped + queryable
+- **CCPA / GDPR compliant** — right-to-delete, IP / UA anonymization
 
 ---
 
-## Security
+## 🔒 Security
 
 - Row-level data isolation per tenant
 - RSA-signed JWT tokens with rotation support
 - All secrets via environment variables (never hardcoded)
-- Security scanned with Semgrep + Gitleaks + OWASP checks
+- Static analysis with Semgrep + Gitleaks + OWASP checks
 - HTTPS enforced via Caddy with Cloudflare Origin certificates
+- Rate limiting on all auth endpoints
 
 ---
 
-## Local Development
+## 🛠️ Local Development
 
 ```bash
 # Install dependencies
@@ -103,3 +120,7 @@ pnpm dev
 ```
 
 > Requires: Node.js 22+, pnpm, Docker
+
+---
+
+**Status:** Working build · Solo MVP · No paying customers yet
