@@ -10,11 +10,9 @@ ADA / PWFA HR Compliance SaaS — multi-tenant **Interactive Process** automatio
 
 ## 🎥 Walkthrough Video
 
-<video src="docs/accommodate-ai-walkthrough.mp4" controls width="100%">
-  Your browser doesn't support embedded video. <a href="docs/accommodate-ai-walkthrough.mp4">Download the walkthrough (5.6 MB, MP4)</a>.
-</video>
+[![Walkthrough Video — AccommodateAI (2:17)](docs/walkthrough-cover.jpg)](docs/accommodate-ai-walkthrough.mp4)
 
-*2:17 product walkthrough — AI Interactive Process, EEOC 4-Factor denial flow, PWFA fast-track, and letter generation.*
+*Click the cover above to play the 2:17 walkthrough — AI Interactive Process, EEOC 4-Factor denial flow, PWFA fast-track, and letter generation. ([Direct download, 5.6 MB MP4](docs/accommodate-ai-walkthrough.mp4))*
 
 ---
 
